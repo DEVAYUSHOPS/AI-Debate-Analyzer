@@ -1,12 +1,21 @@
-export interface AnalysisResult {
-  claims: any[];
-  counterclaims: any[];
-  evidence: any[];
-  fallacies: any[];
-  biasLevel: string;
-  speakerScores: {
-    speakerA: number;
-    speakerB: number;
+export interface Debate {
+  _id: string;
+  topic: string;
+  speakerA: string;
+  speakerB: string;
+
+  analysis: {
+    winner: string;
+
+    speakerScores: {
+      speakerA: number;
+      speakerB: number;
+    };
+
+    claims: string[];
+    counterclaims: string[];
+    evidence: string[];
+    fallacies: string[];
+    biasLevel: string;
   };
-  winner: string;
 }
