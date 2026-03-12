@@ -5,5 +5,5 @@ joblib
 datasets
 matplotlib
 nltk
-# torch
+torch
 transformers
