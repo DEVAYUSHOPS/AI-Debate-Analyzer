@@ -14,9 +14,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 1. Load Dataset
 # =========================
 
-train_dataset = load_from_disk("train")
-val_dataset = load_from_disk("val")
-test_dataset = load_from_disk("test")
+train_dataset = load_from_disk("./notebooks/data/train")
+val_dataset = load_from_disk("./notebooks/data/val")
+test_dataset = load_from_disk("./notebooks/data/test")
 
 
 train_dataset.set_format(type="torch", columns=["input_ids","attention_mask","label","task_id"])
