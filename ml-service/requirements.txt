@@ -7,3 +7,6 @@ matplotlib
 nltk
 torch
 transformers
+fastapi 
+uvicorn
+streamlit
