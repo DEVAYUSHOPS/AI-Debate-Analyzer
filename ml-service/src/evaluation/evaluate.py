@@ -65,7 +65,7 @@ class MultiTaskModel(nn.Module):
 model = MultiTaskModel().to(device)
 
 model_path = os.path.join(current_dir, "..", "models", "debate_model.pt")
-model.load_state_dict(torch.load("./evaluation/evaluate.py", map_location=device))
+model.load_state_dict(torch.load("src/models/debate_model.pt", map_location=device))
 
 model.eval()
 
