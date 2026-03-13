@@ -224,6 +224,6 @@ for epoch in range(num_epochs):
 # 8. Save Model
 # =========================
 
-torch.save(model.state_dict(), "models/debate_model.pt")
+torch.save(model.state_dict(), "debate_model.pt")
 
 print("Model saved.")
