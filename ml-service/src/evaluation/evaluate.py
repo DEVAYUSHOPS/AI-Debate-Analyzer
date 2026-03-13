@@ -6,6 +6,7 @@ from transformers import AutoModel
 from sklearn.metrics import f1_score
 from scipy.stats import pearsonr
 import numpy as np
+from tqdm import tqdm
 import os
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -90,7 +91,7 @@ stance_labels = []
 
 with torch.no_grad():
 
-    for batch in test_loader:
+    for batch in tqdm(test_loader):
 
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
