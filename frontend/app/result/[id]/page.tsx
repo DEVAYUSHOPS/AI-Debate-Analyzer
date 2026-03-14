@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import ResultCard from "../../../components/ResultCard";
 import Loader from '@/components/Loader';
 import { Debate } from "@/types/debate";
+import PageContainer from '@/components/PageContainer';
 
 const Result = () => {
     const params = useParams<{ id: string }>();
@@ -32,8 +33,11 @@ const Result = () => {
 
   return (
     <>
-        <h1>Result</h1>
-        <ResultCard debate={debate}/>
+        <PageContainer>
+
+          <h1>Result</h1>
+          <ResultCard debate={debate}/>
+        </PageContainer>
     </>
   )
 }
