@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -7,11 +8,28 @@ from sklearn.metrics import f1_score
 from scipy.stats import pearsonr
 import numpy as np
 from tqdm import tqdm
-import os
+from dotenv import load_dotenv
+from huggingface_hub import login
+
+# PEFT
+from peft import LoraConfig, get_peft_model, TaskType
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# =========================
+# 0. Hugging Face Login
+# =========================
+
+load_dotenv()
+hf_token = os.getenv("HF_TOKEN")
+
+if hf_token:
+    print("Logging into Hugging Face Hub...")
+    login(token=hf_token)
+else:
+    print("Warning: HF_TOKEN not found in .env file. Running unauthenticated.")
 
 
 # =========================
@@ -35,10 +53,21 @@ test_loader = DataLoader(test_dataset, batch_size=16)
 class MultiTaskModel(nn.Module):
 
     def __init__(self):
-
         super().__init__()
 
-        self.encoder = AutoModel.from_pretrained("roberta-base")
+        # Match the training script exactly
+        base_model = AutoModel.from_pretrained("microsoft/deberta-v3-base")
+
+        lora_config = LoraConfig(
+            task_type=TaskType.FEATURE_EXTRACTION,
+            r=8,
+            lora_alpha=16,
+            target_modules=["query_proj", "value_proj"],
+            lora_dropout=0.1,
+            bias="none"
+        )
+
+        self.encoder = get_peft_model(base_model, lora_config)
 
         hidden = self.encoder.config.hidden_size
 
@@ -46,15 +75,16 @@ class MultiTaskModel(nn.Module):
         self.component_head = nn.Linear(hidden, 3)
         self.stance_head = nn.Linear(hidden, 3)
 
-
     def forward(self, input_ids, attention_mask):
-
         outputs = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask
         )
 
         cls = outputs.last_hidden_state[:,0]
+
+        # Cast to float32 to prevent dtype mismatch errors
+        cls = cls.to(torch.float32)
 
         quality_logits = self.quality_head(cls)
         component_logits = self.component_head(cls)
@@ -66,7 +96,9 @@ class MultiTaskModel(nn.Module):
 model = MultiTaskModel().to(device)
 
 model_path = os.path.join(current_dir, "debate_model.pt")
-model.load_state_dict(torch.load(model_path, map_location=device))
+
+# Added strict=False just to be safe with PEFT buffers
+model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
 
 model.eval()
 
@@ -108,25 +140,17 @@ with torch.no_grad():
             task = task_ids[i]
 
             if task == 0:
-
                 pred = quality_logits[i].item()
-
                 quality_preds.append(pred)
                 quality_labels.append(labels[i].item())
 
-
             elif task == 1:
-
                 pred = torch.argmax(component_logits[i]).item()
-
                 component_preds.append(pred)
                 component_labels.append(int(labels[i].item()))
 
-
             elif task == 2:
-
                 pred = torch.argmax(stance_logits[i]).item()
-
                 stance_preds.append(pred)
                 stance_labels.append(int(labels[i].item()))
 
@@ -138,21 +162,13 @@ with torch.no_grad():
 print("\nEvaluation Results\n")
 
 if len(quality_preds) > 0:
-
     corr, _ = pearsonr(quality_labels, quality_preds)
-
     print(f"Argument Quality Pearson Correlation: {corr:.4f}")
 
-
 if len(component_preds) > 0:
-
     f1 = f1_score(component_labels, component_preds, average="macro")
-
     print(f"Argument Component F1: {f1:.4f}")
 
-
 if len(stance_preds) > 0:
-
     f1 = f1_score(stance_labels, stance_preds, average="macro")
-
     print(f"Stance Detection F1: {f1:.4f}")
