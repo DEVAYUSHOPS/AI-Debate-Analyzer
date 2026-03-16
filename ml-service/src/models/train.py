@@ -1,14 +1,35 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from datasets import load_from_disk
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel
 from transformers import get_scheduler
 from tqdm import tqdm
+from dotenv import load_dotenv
+from huggingface_hub import login
+import os
+
+# PEFT
+from peft import LoraConfig, get_peft_model, TaskType
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# =========================
+# 0. Hugging Face Login
+# =========================
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# Fetch the token and log in
+hf_token = os.getenv("HF_TOKEN")
+
+if hf_token:
+    print("Logging into Hugging Face Hub...")
+    login(token=hf_token)
+else:
+    print("Warning: HF_TOKEN not found in .env file. Running unauthenticated.")
 
 
 # =========================
@@ -19,11 +40,20 @@ train_dataset = load_from_disk("./notebooks/data/train")
 val_dataset = load_from_disk("./notebooks/data/val")
 test_dataset = load_from_disk("./notebooks/data/test")
 
+train_dataset.set_format(
+    type="torch",
+    columns=["input_ids", "attention_mask", "label", "task_id"]
+)
 
-train_dataset.set_format(type="torch", columns=["input_ids","attention_mask","label","task_id"])
-val_dataset.set_format(type="torch", columns=["input_ids","attention_mask","label","task_id"])
-test_dataset.set_format(type="torch", columns=["input_ids","attention_mask","label","task_id"])
+val_dataset.set_format(
+    type="torch",
+    columns=["input_ids", "attention_mask", "label", "task_id"]
+)
 
+test_dataset.set_format(
+    type="torch",
+    columns=["input_ids", "attention_mask", "label", "task_id"]
+)
 
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=16)
@@ -40,14 +70,24 @@ class MultiTaskModel(nn.Module):
 
         super().__init__()
 
-        self.encoder = AutoModel.from_pretrained("roberta-base")
+        base_model = AutoModel.from_pretrained("microsoft/deberta-v3-base")
+
+        lora_config = LoraConfig(
+            task_type=TaskType.FEATURE_EXTRACTION,
+            r=8,
+            lora_alpha=16,
+            target_modules=["query_proj", "value_proj"],
+            lora_dropout=0.1,
+            bias="none"
+        )
+
+        self.encoder = get_peft_model(base_model, lora_config)
 
         hidden = self.encoder.config.hidden_size
 
         self.quality_head = nn.Linear(hidden, 1)
         self.component_head = nn.Linear(hidden, 3)
         self.stance_head = nn.Linear(hidden, 3)
-
 
     def forward(self, input_ids, attention_mask):
 
@@ -56,7 +96,10 @@ class MultiTaskModel(nn.Module):
             attention_mask=attention_mask
         )
 
-        cls = outputs.last_hidden_state[:,0]
+        cls = outputs.last_hidden_state[:, 0]
+
+        # --- FIX: Cast the cls tensor to float32 to match the linear heads ---
+        cls = cls.to(torch.float32)
 
         quality_logits = self.quality_head(cls)
         component_logits = self.component_head(cls)
@@ -67,24 +110,25 @@ class MultiTaskModel(nn.Module):
 
 model = MultiTaskModel().to(device)
 
+model.encoder.print_trainable_parameters()
+
 
 # =========================
 # 3. Loss Functions
 # =========================
 
-mse_loss = nn.MSELoss()
 ce_loss = nn.CrossEntropyLoss()
 
-# Weighted loss for argument quality
+
 def weighted_mse_loss(predictions, labels):
 
     weights = torch.ones_like(labels)
 
-    # emphasize weak arguments
     weights[labels < 0.4] = 2.0
     weights[labels < 0.2] = 3.0
 
     loss = weights * (predictions - labels) ** 2
+
     return loss.mean()
 
 
@@ -138,18 +182,24 @@ def train_epoch():
             task = task_ids[i]
 
             if task == 0:
+
                 pred = quality_logits[i]
                 label = labels[i].float()
+
                 loss += weighted_mse_loss(pred.squeeze(), label)
 
             elif task == 1:
+
                 pred = component_logits[i].unsqueeze(0)
                 label = labels[i].long().unsqueeze(0)
+
                 loss += ce_loss(pred, label)
 
             elif task == 2:
+
                 pred = stance_logits[i].unsqueeze(0)
                 label = labels[i].long().unsqueeze(0)
+
                 loss += ce_loss(pred, label)
 
         loss = loss / len(task_ids)
@@ -197,18 +247,24 @@ def evaluate(loader):
                 task = task_ids[i]
 
                 if task == 0:
+
                     pred = quality_logits[i]
                     label = labels[i].float()
+
                     loss += weighted_mse_loss(pred.squeeze(), label)
-                    
+
                 elif task == 1:
+
                     pred = component_logits[i].unsqueeze(0)
                     label = labels[i].long().unsqueeze(0)
+
                     loss += ce_loss(pred, label)
 
                 elif task == 2:
+
                     pred = stance_logits[i].unsqueeze(0)
                     label = labels[i].long().unsqueeze(0)
+
                     loss += ce_loss(pred, label)
 
             loss = loss / len(task_ids)

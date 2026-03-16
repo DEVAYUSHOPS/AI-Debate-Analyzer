@@ -10,3 +10,6 @@ transformers
 fastapi 
 uvicorn
 streamlit
+peft
+accelerate
+python-dotenv
