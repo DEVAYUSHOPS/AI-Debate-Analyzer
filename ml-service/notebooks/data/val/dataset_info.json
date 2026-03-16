@@ -22,12 +22,12 @@
       "dtype": "float64",
       "_type": "Value"
     },
-    "__index_level_0__": {
-      "dtype": "int64",
+    "score_bin": {
+      "dtype": "string",
       "_type": "Value"
     },
-    "labels": {
-      "dtype": "float64",
+    "__index_level_0__": {
+      "dtype": "int64",
       "_type": "Value"
     },
     "input_ids": {

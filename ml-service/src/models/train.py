@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from datasets import load_from_disk
@@ -74,6 +75,18 @@ model = MultiTaskModel().to(device)
 mse_loss = nn.MSELoss()
 ce_loss = nn.CrossEntropyLoss()
 
+# Weighted loss for argument quality
+def weighted_mse_loss(predictions, labels):
+
+    weights = torch.ones_like(labels)
+
+    # emphasize weak arguments
+    weights[labels < 0.4] = 2.0
+    weights[labels < 0.2] = 3.0
+
+    loss = weights * (predictions - labels) ** 2
+    return loss.mean()
+
 
 # =========================
 # 4. Optimizer
@@ -127,7 +140,7 @@ def train_epoch():
             if task == 0:
                 pred = quality_logits[i]
                 label = labels[i].float()
-                loss += mse_loss(pred.squeeze(), label)
+                loss += weighted_mse_loss(pred.squeeze(), label)
 
             elif task == 1:
                 pred = component_logits[i].unsqueeze(0)
@@ -186,8 +199,8 @@ def evaluate(loader):
                 if task == 0:
                     pred = quality_logits[i]
                     label = labels[i].float()
-                    loss += mse_loss(pred.squeeze(), label)
-
+                    loss += weighted_mse_loss(pred.squeeze(), label)
+                    
                 elif task == 1:
                     pred = component_logits[i].unsqueeze(0)
                     label = labels[i].long().unsqueeze(0)
