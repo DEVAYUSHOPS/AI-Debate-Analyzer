@@ -120,6 +120,11 @@ class MultiTaskModel(nn.Module):
 model = MultiTaskModel().to(device)
 model.encoder.print_trainable_parameters()
 
+# 🔥 NEW: Multi-GPU Activation
+if torch.cuda.device_count() > 1:
+    print(f"\n🚀 Activating {torch.cuda.device_count()} GPUs! DataParallel enabled.")
+    model = nn.DataParallel(model)
+
 class FocalLoss(nn.Module):
     def __init__(self, weight=None, gamma=2.0):
         super(FocalLoss, self).__init__()
@@ -389,5 +394,8 @@ for epoch in range(num_epochs):
 # 8. Save Model
 # =========================
 wandb.finish()
-torch.save(model.state_dict(), "debate_model.pt")
+if isinstance(model, nn.DataParallel):
+    torch.save(model.module.state_dict(), "debate_model.pt")
+else:
+    torch.save(model.state_dict(), "debate_model.pt")
 print("Model saved.")
