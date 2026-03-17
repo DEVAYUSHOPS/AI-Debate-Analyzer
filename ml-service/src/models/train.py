@@ -9,6 +9,7 @@ from utils import TaskBalancedBatchSampler
 from datasets import load_from_disk
 from transformers import AutoModel, get_scheduler
 from tqdm import tqdm
+from tqdm.auto import tqdm
 from dotenv import load_dotenv
 from huggingface_hub import login
 import os
@@ -190,7 +191,7 @@ def train_epoch():
     model.train()
     total_loss = 0
 
-    progress = tqdm(train_loader, desc="Training", leave=False)
+    progress = tqdm(train_loader, desc="Training", leave=False, position=0, dynamic_ncols=True)
 
     for batch in progress:
         input_ids = batch["input_ids"].to(device)
