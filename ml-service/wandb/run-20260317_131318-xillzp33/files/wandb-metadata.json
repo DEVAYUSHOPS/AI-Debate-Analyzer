@@ -1,0 +1,28 @@
+{
+  "os": "Windows-10-10.0.26200-SP0",
+  "python": "CPython 3.10.7",
+  "startedAt": "2026-03-17T07:43:18.209238Z",
+  "program": "E:\\AI-Debate-Analyzer\\ml-service\\src\\models\\train.py",
+  "codePath": "ml-service\\src\\models\\train.py",
+  "codePathLocal": "src\\models\\train.py",
+  "git": {
+    "remote": "https://github.com/DEVAYUSHOPS/AI-Debate-Analyzer.git",
+    "commit": "67088aaebd4ae3848dff03fa2474d2a1cdb7c947"
+  },
+  "email": "adrikjohnson79@gmail.com",
+  "root": "E:\\AI-Debate-Analyzer\\ml-service",
+  "host": "DESKTOP-8PGNPCH",
+  "executable": "E:\\AI-Debate-Analyzer\\debate_env\\Scripts\\python.exe",
+  "cpu_count": 4,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "122057388032",
+      "used": "40770920448"
+    }
+  },
+  "memory": {
+    "total": "16936132608"
+  },
+  "writerId": "e4z5m3dgwix884fbeasnjwrya47kn0k3"
+}

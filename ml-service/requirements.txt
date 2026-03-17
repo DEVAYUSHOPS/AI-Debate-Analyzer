@@ -14,3 +14,5 @@ peft
 accelerate
 python-dotenv
 tiktoken
+wandb
+sentencepiece
