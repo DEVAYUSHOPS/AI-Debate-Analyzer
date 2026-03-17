@@ -5,19 +5,20 @@ import Debate from "@/models/Debate";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { topic, speakerA, speakerB, transcript } = body;
 
-    // Basic validation
-    if (!topic || !speakerA || !speakerB || !transcript) {
+    const { topic, speakerA, speakerB, mode, rounds } = body;
+
+    // ✅ Updated validation
+    if (!topic || !speakerA || !speakerB || !rounds) {
       return NextResponse.json(
-        { error: "All fields are required" },
+        { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
     await connectDB();
 
-    // 🔥 Dummy ML Response (Replace later)
+    // 🔥 Dummy ML Response
     const dummyAnalysis = {
       claims: ["AI improves efficiency"],
       counterclaims: ["AI lacks emotional intelligence"],
@@ -35,7 +36,8 @@ export async function POST(req: Request) {
       topic,
       speakerA,
       speakerB,
-      transcript,
+      mode,
+      rounds, // ✅ store structured rounds
       analysis: dummyAnalysis
     });
 

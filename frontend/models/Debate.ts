@@ -1,45 +1,37 @@
-// models/Debate.ts
-
 import mongoose from "mongoose";
+
+const RoundSchema = new mongoose.Schema({
+  round: String,
+  speakerA: String,
+  speakerB: String
+});
 
 const DebateSchema = new mongoose.Schema({
   topic: {
     type: String,
-    required: true
+    default: "Untitled Debate"
   },
 
-  speakerA: {
+  speakerA: String,
+  speakerB: String,
+
+  mode: {
     type: String,
-    required: true
+    enum: ["text", "speech"]
   },
 
-  speakerB: {
-    type: String,
-    required: true
-  },
-
-  transcript: {
-    type: String,
-    required: true
-  },
+  rounds: [RoundSchema],
 
   analysis: {
-    claims: Array,
-    counterclaims: Array,
-    evidence: Array,
-    fallacies: Array,
-    biasLevel: String,
+    winner: String,
     speakerScores: {
       speakerA: Number,
       speakerB: Number
     },
-    winner: String
-  },
-
-  createdAt: {
-    type: Date,
-    default: Date.now
+    claims: [String],
+    evidence: [String],
+    fallacies: [String]
   }
-});
+}, { timestamps: true });
 
 export default mongoose.models.Debate || mongoose.model("Debate", DebateSchema);
