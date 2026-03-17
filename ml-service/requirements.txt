@@ -13,3 +13,4 @@ streamlit
 peft
 accelerate
 python-dotenv
+tiktoken
