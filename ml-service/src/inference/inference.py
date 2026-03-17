@@ -9,16 +9,13 @@ from huggingface_hub import login
 from peft import LoraConfig, get_peft_model, TaskType
 
 # Assuming this is your custom module
-from src.inference.fallacy_detector import detect_fallacy
+from fallacy_detector import detect_fallacy
 
 # =========================
 # 0. Hugging Face Login
 # =========================
 
-# Load environment variables from the .env file
 load_dotenv()
-
-# Fetch the token and log in
 hf_token = os.getenv("HF_TOKEN")
 
 if hf_token:
@@ -53,7 +50,7 @@ class MultiTaskModel(nn.Module):
 
         self.quality_head = nn.Linear(hidden, 1)
         self.component_head = nn.Linear(hidden, 3)
-        self.stance_head = nn.Linear(hidden, 3)
+        self.stance_head = nn.Linear(hidden, 2) # 2 classes for PRO/CON
 
     def forward(self, input_ids, attention_mask):
         outputs = self.encoder(
@@ -61,14 +58,18 @@ class MultiTaskModel(nn.Module):
             attention_mask=attention_mask
         )
 
-        cls = outputs.last_hidden_state[:, 0]
+        # 🔥 Fixed: Mean Pooling matches train.py
+        hidden_states = outputs.last_hidden_state
+        mask = attention_mask.unsqueeze(-1)
+        pooled = (hidden_states * mask).sum(1) / mask.sum(1)
         
-        # Cast to float32 to prevent dtype mismatch errors with the Linear heads
-        cls = cls.to(torch.float32)
+        # Cast to float32 to prevent dtype mismatch errors
+        pooled = pooled.to(torch.float32)
 
-        quality_logits = self.quality_head(cls)
-        component_logits = self.component_head(cls)
-        stance_logits = self.stance_head(cls)
+        # 🔥 Fixed: Added squeeze(-1)
+        quality_logits = self.quality_head(pooled).squeeze(-1)
+        component_logits = self.component_head(pooled)
+        stance_logits = self.stance_head(pooled)
 
         return quality_logits, component_logits, stance_logits
 
@@ -96,8 +97,9 @@ class DebateAnalyzer:
         # Fixed Tokenizer: DeBERTa instead of RoBERTa
         self.tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-v3-base")
 
-        self.component_map = {0: "Claim", 1: "Premise", 2: "Other"}
-        self.stance_map = {0: "Against", 1: "Neutral", 2: "Pro"}
+        # 🔥 Fixed: Mapped exactly to how we encoded the labels in preprocessing.ipynb
+        self.component_map = {0: "MajorClaim", 1: "Claim", 2: "Premise"}
+        self.stance_map = {0: "CON", 1: "PRO"}
 
     def predict(self, text):
         inputs = self.tokenizer(
@@ -117,7 +119,8 @@ class DebateAnalyzer:
                 attention_mask
             )
 
-            quality = quality_logits.item()
+            # Ensure quality score stays cleanly within bounds (since it was trained 0.0 to 1.0)
+            quality = torch.clamp(quality_logits, min=0.0, max=1.0).item()
             component = torch.argmax(component_logits, dim=1).item()
             stance = torch.argmax(stance_logits, dim=1).item()
 
@@ -128,7 +131,7 @@ class DebateAnalyzer:
                 quality = quality * 0.6
 
         return {
-            "argument_quality": round(quality, 3),
+            "argument_quality_score": round(quality, 3), # Output is 0.0 to 1.0
             "component": self.component_map[component],
             "stance": self.stance_map[stance],
             "fallacy": fallacy

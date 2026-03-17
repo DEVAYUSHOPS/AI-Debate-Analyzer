@@ -121,10 +121,13 @@ model.encoder.print_trainable_parameters()
 # =========================
 # 3. Loss Functions
 # =========================
-ce_loss = nn.CrossEntropyLoss()
+# 🧩 NEW: Component Class Weights (Replace with the exact numbers from Step 1!)
+# Example: If Premises are 3x more common than MajorClaims, it might look like [3.14, 1.85, 1.0]
+component_class_weights = torch.tensor([10.1, 2.33, 1.0]).to(device)
+ce_loss = nn.CrossEntropyLoss(weight=component_class_weights)
 
-# 🔥 Adjust these weights after checking distribution
-stance_class_weights = torch.tensor([1.2, 1.0]).to(device)
+# 🎯 Stance Class Weights
+stance_class_weights = torch.tensor([1.57, 1.0]).to(device)
 stance_loss_fn = nn.CrossEntropyLoss(weight=stance_class_weights)
 
 def weighted_mse_loss(pred, labels):
@@ -155,6 +158,9 @@ lr_scheduler = get_scheduler(
 # =========================
 # 5. Training
 # =========================
+
+scaler = torch.cuda.amp.GradScaler()
+
 def train_epoch():
     model.train()
     total_loss = 0
@@ -169,41 +175,50 @@ def train_epoch():
 
         optimizer.zero_grad()
 
-        quality_logits, component_logits, stance_logits = model(
-            input_ids, attention_mask
-        )
-
-        quality_mask = task_ids == 0
-        component_mask = task_ids == 1
-        stance_mask = task_ids == 2
-
-        # Losses
-        q_loss = c_loss = s_loss = torch.tensor(0.0, device=device)
-
-        if quality_mask.sum() > 0:
-            q_loss = weighted_mse_loss(
-                quality_logits[quality_mask],
-                labels[quality_mask].float()
+        # 🔥 1. Wrap the forward pass and loss computation in autocast
+        with torch.cuda.amp.autocast():
+            quality_logits, component_logits, stance_logits = model(
+                input_ids, attention_mask
             )
 
-        if component_mask.sum() > 0:
-            c_loss = ce_loss(
-                component_logits[component_mask],
-                labels[component_mask].long()
-            )
+            quality_mask = task_ids == 0
+            component_mask = task_ids == 1
+            stance_mask = task_ids == 2
 
-        if stance_mask.sum() > 0:
-            s_loss = stance_loss_fn(
-                stance_logits[stance_mask],
-                labels[stance_mask].long()
-            )
+            # Losses
+            q_loss = c_loss = s_loss = torch.tensor(0.0, device=device)
 
-        loss = (1.0 * q_loss) + (0.7 * c_loss) + (1.5 * s_loss)
+            if quality_mask.sum() > 0:
+                q_loss = weighted_mse_loss(
+                    quality_logits[quality_mask],
+                    labels[quality_mask].float()
+                )
 
-        loss.backward()
+            if component_mask.sum() > 0:
+                c_loss = ce_loss(
+                    component_logits[component_mask],
+                    labels[component_mask].long()
+                )
+
+            if stance_mask.sum() > 0:
+                s_loss = stance_loss_fn(
+                    stance_logits[stance_mask],
+                    labels[stance_mask].long()
+                )
+
+            loss = (1.0 * q_loss) + (0.7 * c_loss) + (1.5 * s_loss)
+
+        # 🔥 2. Scale the loss and call backward
+        scaler.scale(loss).backward()
+        
+        # 🔥 3. Unscale the gradients BEFORE clipping them
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-        optimizer.step()
+        # 🔥 4. Step the optimizer using the scaler, then update the scaler
+        scaler.step(optimizer)
+        scaler.update()
+        
         lr_scheduler.step()
 
         total_loss += loss.item()
@@ -218,9 +233,7 @@ def train_epoch():
 # =========================
 # 6. Evaluation
 # =========================
-# =========================
-# 6. Evaluation
-# =========================
+
 def evaluate_with_metrics(loader):
     model.eval()
     total_loss = 0

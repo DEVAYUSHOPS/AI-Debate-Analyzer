@@ -51,7 +51,6 @@ test_loader = DataLoader(test_dataset, batch_size=16)
 # =========================
 
 class MultiTaskModel(nn.Module):
-
     def __init__(self):
         super().__init__()
 
@@ -68,12 +67,11 @@ class MultiTaskModel(nn.Module):
         )
 
         self.encoder = get_peft_model(base_model, lora_config)
-
         hidden = self.encoder.config.hidden_size
 
         self.quality_head = nn.Linear(hidden, 1)
         self.component_head = nn.Linear(hidden, 3)
-        self.stance_head = nn.Linear(hidden, 3)
+        self.stance_head = nn.Linear(hidden, 2) # 🔥 Fixed to 2 classes
 
     def forward(self, input_ids, attention_mask):
         outputs = self.encoder(
@@ -81,17 +79,20 @@ class MultiTaskModel(nn.Module):
             attention_mask=attention_mask
         )
 
-        cls = outputs.last_hidden_state[:,0]
+        # 🔥 Fixed: Use Mean Pooling to match train.py exactly
+        hidden_states = outputs.last_hidden_state
+        mask = attention_mask.unsqueeze(-1)
+        pooled = (hidden_states * mask).sum(1) / mask.sum(1)
 
         # Cast to float32 to prevent dtype mismatch errors
-        cls = cls.to(torch.float32)
+        pooled = pooled.to(torch.float32)
 
-        quality_logits = self.quality_head(cls)
-        component_logits = self.component_head(cls)
-        stance_logits = self.stance_head(cls)
+        # 🔥 Fixed: Added squeeze(-1) to match tensor shapes
+        quality_logits = self.quality_head(pooled).squeeze(-1)
+        component_logits = self.component_head(pooled)
+        stance_logits = self.stance_head(pooled)
 
         return quality_logits, component_logits, stance_logits
-
 
 model = MultiTaskModel().to(device)
 
