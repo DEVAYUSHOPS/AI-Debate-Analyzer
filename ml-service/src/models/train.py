@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from sklearn.metrics import f1_score
@@ -118,13 +119,37 @@ class MultiTaskModel(nn.Module):
 model = MultiTaskModel().to(device)
 model.encoder.print_trainable_parameters()
 
+class FocalLoss(nn.Module):
+    def __init__(self, weight=None, gamma=2.0):
+        super(FocalLoss, self).__init__()
+        # 'weight' is our [10.1, 2.33, 1.0] penalty tensor
+        self.weight = weight 
+        # 'gamma' controls how hard we ignore easy examples. 2.0 is the industry standard.
+        self.gamma = gamma 
+
+    def forward(self, inputs, targets):
+        # 1. Calculate standard Cross Entropy (but don't average it yet)
+        ce_loss = F.cross_entropy(inputs, targets, weight=self.weight, reduction='none')
+        
+        # 2. Extract the probability the model assigned to the CORRECT class (pt)
+        # Fun PyTorch trick: ce_loss is -log(pt), so exp(-ce_loss) gives us pt back!
+        pt = torch.exp(-ce_loss)
+        
+        # 3. Apply the focal scaling factor: (1 - pt)^gamma
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        
+        # 4. Return the mean loss for the batch
+        return focal_loss.mean()
+
 # =========================
 # 3. Loss Functions
 # =========================
-# 🧩 NEW: Component Class Weights (Replace with the exact numbers from Step 1!)
-# Example: If Premises are 3x more common than MajorClaims, it might look like [3.14, 1.85, 1.0]
+
+# 🧩 Component Class Weights + Focal Loss (The Ultimate Fix)
 component_class_weights = torch.tensor([10.1, 2.33, 1.0]).to(device)
-ce_loss = nn.CrossEntropyLoss(weight=component_class_weights)
+
+# 🔥 Replaced nn.CrossEntropyLoss with our new FocalLoss!
+ce_loss = FocalLoss(weight=component_class_weights, gamma=2.0) 
 
 # 🎯 Stance Class Weights
 stance_class_weights = torch.tensor([1.57, 1.0]).to(device)
@@ -313,6 +338,9 @@ print("-----------------------------\n")
 # =========================
 # 7. Training Loop
 # =========================
+# best_val_loss = float('inf')
+best_composite_score = 0.0
+
 for epoch in range(num_epochs):
 
     print(f"\n🚀 Epoch {epoch+1}/{num_epochs}")
@@ -327,6 +355,24 @@ for epoch in range(num_epochs):
     print(f"🧩 Component F1: {comp_f1:.4f}") # Print the new metric
     print(f"🎯 Stance F1: {stance_f1:.4f}")
 
+    # if val_loss < best_val_loss:
+    #     print(f"🌟 Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving weights!")
+    #     best_val_loss = val_loss
+    #     # Save the model IMMEDIATELY when it hits a new peak
+    #     torch.save(model.state_dict(), "debate_model.pt")
+    # else:
+    #     print(f"⚠️ Validation loss did not improve.")
+
+    # 🔥 The New Checkpointing Logic: Average the three metrics
+    composite_score = (pearson + comp_f1 + stance_f1) / 3.0
+
+    if composite_score > best_composite_score:
+        print(f"🌟 Composite score improved to {composite_score:.4f}. Saving weights!")
+        best_composite_score = composite_score
+        torch.save(model.state_dict(), "debate_model.pt")
+    else:
+        print(f"⚠️ Score did not improve.")
+
     wandb.log({
         "epoch": epoch + 1,
         "epoch_train_loss": train_loss,
@@ -335,6 +381,8 @@ for epoch in range(num_epochs):
         "component_f1": comp_f1, # Log it to W&B
         "stance_f1": stance_f1
     })
+
+    print("Training complete. The best weights are saved in 'debate_model.pt'.")
 
 # =========================
 # 8. Save Model

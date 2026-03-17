@@ -16,3 +16,5 @@ python-dotenv
 tiktoken
 wandb
 sentencepiece
+symspellpy
+whisper_normalizer
