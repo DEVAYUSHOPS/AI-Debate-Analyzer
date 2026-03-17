@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
+from sklearn.metrics import f1_score
+from scipy.stats import pearsonr
 from datasets import load_from_disk
 from transformers import AutoModel, get_scheduler
 from tqdm import tqdm
@@ -134,7 +136,7 @@ def train_epoch():
     model.train()
     total_loss = 0
 
-    progress = tqdm(train_loader)
+    progress = tqdm(train_loader, desc="Training", leave=False)
 
     for batch in progress:
         input_ids = batch["input_ids"].to(device)
@@ -148,38 +150,31 @@ def train_epoch():
             input_ids, attention_mask
         )
 
-        # Masks
         quality_mask = task_ids == 0
         component_mask = task_ids == 1
         stance_mask = task_ids == 2
 
-        loss = 0
+        # Losses
+        q_loss = c_loss = s_loss = 0
 
-        # Quality
         if quality_mask.sum() > 0:
-            q_pred = quality_logits[quality_mask]
-            q_label = labels[quality_mask].float()
-            q_loss = weighted_mse_loss(q_pred, q_label)
-        else:
-            q_loss = 0
+            q_loss = weighted_mse_loss(
+                quality_logits[quality_mask],
+                labels[quality_mask].float()
+            )
 
-        # Component
         if component_mask.sum() > 0:
-            c_pred = component_logits[component_mask]
-            c_label = labels[component_mask].long()
-            c_loss = ce_loss(c_pred, c_label)
-        else:
-            c_loss = 0
+            c_loss = ce_loss(
+                component_logits[component_mask],
+                labels[component_mask].long()
+            )
 
-        # Stance (BOOSTED)
         if stance_mask.sum() > 0:
-            s_pred = stance_logits[stance_mask]
-            s_label = labels[stance_mask].long()
-            s_loss = stance_loss_fn(s_pred, s_label)
-        else:
-            s_loss = 0
+            s_loss = stance_loss_fn(
+                stance_logits[stance_mask],
+                labels[stance_mask].long()
+            )
 
-        # 🔥 Task weighting
         loss = (1.0 * q_loss) + (0.7 * c_loss) + (1.5 * s_loss)
 
         loss.backward()
@@ -189,19 +184,29 @@ def train_epoch():
         lr_scheduler.step()
 
         total_loss += loss.item()
-        progress.set_description(f"loss {loss.item():.4f}")
+
+        # ✅ Clean postfix instead of new lines
+        progress.set_postfix(loss=f"{loss.item():.4f}")
 
     return total_loss / len(train_loader)
 
 # =========================
 # 6. Evaluation
 # =========================
-def evaluate(loader):
+def evaluate_with_metrics(loader):
     model.eval()
+
     total_loss = 0
+
+    all_quality_preds = []
+    all_quality_labels = []
+
+    all_stance_preds = []
+    all_stance_labels = []
 
     with torch.no_grad():
         for batch in loader:
+
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
@@ -212,21 +217,15 @@ def evaluate(loader):
             )
 
             quality_mask = task_ids == 0
-            component_mask = task_ids == 1
             stance_mask = task_ids == 2
 
+            # --- Loss (optional, keep it) ---
             loss = 0
 
             if quality_mask.sum() > 0:
                 loss += weighted_mse_loss(
                     quality_logits[quality_mask],
                     labels[quality_mask].float()
-                )
-
-            if component_mask.sum() > 0:
-                loss += ce_loss(
-                    component_logits[component_mask],
-                    labels[component_mask].long()
                 )
 
             if stance_mask.sum() > 0:
@@ -237,18 +236,52 @@ def evaluate(loader):
 
             total_loss += loss.item()
 
-    return total_loss / len(loader)
+            # --- Collect metrics ---
+            if quality_mask.sum() > 0:
+                all_quality_preds.extend(
+                    quality_logits[quality_mask].cpu().numpy()
+                )
+                all_quality_labels.extend(
+                    labels[quality_mask].cpu().numpy()
+                )
+
+            if stance_mask.sum() > 0:
+                preds = torch.argmax(
+                    stance_logits[stance_mask], dim=1
+                )
+
+                all_stance_preds.extend(preds.cpu().numpy())
+                all_stance_labels.extend(
+                    labels[stance_mask].cpu().numpy()
+                )
+
+    # --- Compute Metrics ---
+    pearson = pearsonr(all_quality_preds, all_quality_labels)[0] \
+        if len(all_quality_preds) > 1 else 0
+
+    f1 = f1_score(
+        all_stance_labels,
+        all_stance_preds,
+        average="macro"
+    ) if len(all_stance_preds) > 0 else 0
+
+    return total_loss / len(loader), pearson, f1
 
 # =========================
 # 7. Training Loop
 # =========================
 for epoch in range(num_epochs):
-    train_loss = train_epoch()
-    val_loss = evaluate(val_loader)
 
-    print(f"\nEpoch {epoch+1}")
+    print(f"\n🚀 Epoch {epoch+1}/{num_epochs}")
+
+    train_loss = train_epoch()
+
+    val_loss, pearson, f1 = evaluate_with_metrics(val_loader)
+
     print(f"Train Loss: {train_loss:.4f}")
     print(f"Val Loss: {val_loss:.4f}")
+    print(f"📊 Pearson (Quality): {pearson:.4f}")
+    print(f"🎯 Stance F1: {f1:.4f}")
 
 # =========================
 # 8. Save Model
