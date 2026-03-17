@@ -170,11 +170,13 @@ def weighted_mse_loss(pred, labels):
 # =========================
 # 4. Optimizer
 # =========================
+base_model = model.module if isinstance(model, nn.DataParallel) else model
+
 optimizer = AdamW([
-    {"params": model.encoder.parameters(), "lr": 2e-5},
-    {"params": model.quality_head.parameters(), "lr": 1e-4},
-    {"params": model.component_head.parameters(), "lr": 1e-4},
-    {"params": model.stance_head.parameters(), "lr": 1e-4},
+    {"params": base_model.encoder.parameters(), "lr": 2e-5},
+    {"params": base_model.quality_head.parameters(), "lr": 1e-4},
+    {"params": base_model.component_head.parameters(), "lr": 1e-4},
+    {"params": base_model.stance_head.parameters(), "lr": 1e-4},
 ])
 
 num_training_steps = num_epochs * len(train_loader)
