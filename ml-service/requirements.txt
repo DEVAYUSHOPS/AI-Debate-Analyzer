@@ -9,6 +9,7 @@ torch
 transformers
 fastapi 
 uvicorn
+pydantic
 streamlit
 peft
 accelerate
@@ -18,3 +19,10 @@ wandb
 sentencepiece
 symspellpy
 whisper_normalizer
+sentence-transformers
+chromadb
+faiss-cpu==1.13.2
+wikipedia-api
+wikipedia
+openai
+google-genai
