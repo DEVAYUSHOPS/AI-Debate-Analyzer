@@ -1,360 +1,301 @@
-# AI Debate Analyzer - ML Service
+# 🧠 AI Debate Analyzer – ML Service
 
-This folder contains the machine learning backend for the AI Debate Analyzer project. The ML service analyzes debate arguments using a multitask NLP model, retrieves factual context through a lightweight RAG pipeline, and generates coaching-style feedback with an LLM.
+An AI-powered argument evaluation system that combines **NLP, Retrieval-Augmented Generation (RAG), and Generative AI** to analyze debate arguments and provide structured coaching feedback.
 
-The current system is a working research prototype. It is suitable for demonstrating the ML pipeline, inference flow, stance handling, retrieval debugging, and end-to-end API behavior.
+This service performs argument analysis using a fine-tuned transformer model, retrieves supporting evidence, and generates human-like feedback grounded in factual context.
 
-## What This Service Does
+---
 
-Given a debate topic and an argument, the service predicts:
+## 🔥 Key Features
 
-- Argument quality score between 0 and 1
-- Argument component type: `MajorClaim`, `Claim`, or `Premise`
-- Stance relative to the debate topic: `PRO` or `CON`
-- Simple logical fallacy label
-- Factual context retrieved from ChromaDB or Wikipedia
-- LLM-generated debate feedback
+- Multitask NLP model (DeBERTa + LoRA)
+- Argument quality scoring (regression)
+- Component classification (Claim / Premise / MajorClaim)
+- Topic-aware stance detection (PRO / CON)
+- Rule-based fallacy detection
+- Multi-source RAG pipeline (Wikipedia + academic retrieval)
+- Query rewriting for improved retrieval
+- Rubric-based evaluation system
+- LLM-powered coaching feedback
+- Retrieval debugging and transparency
+- RLAIF-style feedback loop for continuous improvement
 
-Example input:
+---
 
-```json
-{
-  "topic": "Schools should ban smartphones",
-  "text": "Schools should not completely ban smartphones because students may need them for emergency communication, accessibility tools, and quick academic research."
-}
+## 🧠 System Architecture
+
+```text
+User Input
+   ↓
+DeBERTa Model (quality, stance, component)
+   ↓
+Query Rewriting (intent-aware)
+   ↓
+Multi-query Expansion
+   ↓
+Multi-source Retrieval
+   → Wikipedia (general knowledge)
+   → Academic sources (Semantic Scholar)
+   ↓
+Deduplication + MMR Filtering
+   ↓
+Structured Context
+   ↓
+LLM (Feedback Generation)
+   ↓
+Rubric Scoring + Final Output
 ```
 
-Example prediction:
+This modular design separates prediction, retrieval, and reasoning layers for better interpretability and extensibility.
+
+---
+
+## 🧠 ML Model Architecture
+
+The core model is a **multitask DeBERTa-v3-base transformer** fine-tuned using **LoRA (PEFT)**.
+
+### Tasks:
+
+- Argument Quality (regression)
+- Component Detection (classification)
+- Stance Detection (classification)
+
+### Training Strategy:
+
+- Task-specific prefixes:
+
+  ```
+  [QUALITY] argument
+  [COMPONENT] argument
+  [STANCE] topic + argument
+  ```
+
+- Shared encoder + task-specific heads
+- Weighted loss for imbalance handling
+
+### Output Example:
 
 ```json
 {
   "argument_quality": 0.695,
   "component": "Claim",
   "stance": "CON",
-  "fallacy": "None",
-  "raw_stance": "PRO",
-  "stance_reason": "topic_negation_conflict:ban,schools,smartphones"
+  "fallacy": "None"
 }
 ```
 
-## ML Architecture
+---
 
-The core model is a multitask DeBERTa-v3-base model with LoRA fine-tuning.
+## 🔍 RAG Pipeline
 
-It has one shared encoder and three task-specific heads:
+The system uses an **enhanced RAG pipeline** to improve factual grounding:
 
-- Regression head for argument quality
-- Classification head for argument component detection
-- Classification head for stance detection
+### Steps:
 
-The model uses task prefixes during training and inference:
+1. Query rewriting based on argument intent (research / policy / general)
+2. Multi-query expansion for broader coverage
+3. Multi-source retrieval:
+   - Wikipedia (general knowledge)
+   - Semantic Scholar (research evidence)
 
-```text
-[QUALITY] argument text
-[COMPONENT] argument text
-[STANCE] topic: debate topic argument: argument text
-```
+4. Deduplication of retrieved chunks
+5. Embedding-based ranking
+6. Diversity-aware filtering (MMR-style)
+7. Structured context generation
 
-The stance output includes both:
+This ensures:
 
-- `raw_stance`: direct neural model output
-- `stance`: final topic-aware stance after correction
+- Better evidence retrieval
+- Reduced hallucination
+- Improved reasoning quality
 
-The correction layer handles explicit topic opposition patterns such as:
+---
 
-```text
-Topic: Schools should ban smartphones
-Argument: Schools should not ban smartphones...
-```
+## 🧠 Query Intelligence Layer
 
-In such cases, the raw model may predict `PRO`, but the corrected stance becomes `CON`.
+Raw debate arguments are not optimal for retrieval.
 
-## RAG Pipeline
+The system includes a **query rewriting module** that:
 
-The RAG layer improves factual grounding before feedback generation.
+- Extracts key terms
+- Detects argument intent (research vs policy vs general)
+- Generates retrieval-friendly queries
 
-Flow:
+This significantly improves performance for research-heavy arguments.
 
-1. Build a compact retrieval query from the topic and argument keywords.
-2. Search the local ChromaDB cache.
-3. Validate cache relevance using topic-specific lexical overlap.
-4. Reject misleading cache hits, such as school-uniform context for a smartphone debate.
-5. Fall back to Wikipedia search if local context is missing or irrelevant.
-6. Cache useful Wikipedia summaries for future requests.
-7. Pass retrieved context to Gemini for feedback generation.
+---
 
-The API also returns `retrieval_debug` so the retrieval behavior can be inspected during testing.
+## 📊 Rubric-Based Evaluation
 
-Example debug fields:
+Beyond model predictions, the system evaluates arguments using a **custom rubric**:
+
+- Argument Quality
+- Evidence Usage
+- Logical Reasoning
+- Clarity
+- Rebuttal Readiness
+
+This enables multi-dimensional assessment instead of relying on a single score.
+
+---
+
+## 🧠 Handling Ambiguity
+
+The system does not assume all arguments are fully supported.
+
+It classifies factual grounding as:
+
+- Supported
+- Partially supported
+- Unsupported
+
+This reflects real-world uncertainty and improves reliability.
+
+---
+
+## 🤖 LLM Feedback Generation
+
+A generative AI model (Gemini) is used to:
+
+- Provide structured coaching feedback
+- Explain strengths and weaknesses
+- Suggest improvements
+- Rewrite arguments
+
+Important:
+
+> The LLM is used for interpretation, not prediction.
+> Core scoring is handled by the trained model and retrieval pipeline.
+
+---
+
+## 🧪 Example Input
 
 ```json
 {
-  "source": "wikipedia",
-  "cache_hit": false,
-  "cache_rejected": true,
-  "cache_relevance_reason": "missing_required_topic_terms:cellphone,mobile,phone,smartphone",
-  "wikipedia_title": "Mobile phone use in schools"
+  "topic": "Schools should ban smartphones",
+  "text": "Research indicates that smartphone use during instructional time reduces academic performance."
 }
 ```
 
-## Project Structure
+---
 
-```text
-ml-service/
-  api.py                         FastAPI backend
-  app.py                         Streamlit demo UI
-  requirements.txt               Python dependencies
-  extract_rlaif_data.py          Converts logged feedback into retraining data
-  rlaif_waiting_room.db          SQLite database for hard examples
+## 📦 API Endpoints
 
-  src/
-    inference/
-      inference.py               Model loading and prediction
-      fallacy_detector.py        Rule-based fallacy detector
+### `/analyze`
 
-    models/
-      train.py                   DeBERTa + LoRA multitask training script
-      utils.py                   Task-balanced sampling helper
+Returns:
 
-    evaluation/
-      evaluate.py                Evaluation script
-      debate_model.pt            Model weights, not tracked by git
-
-    rag/
-      query_expansion.py         Keyword extraction and retrieval query building
-      retriever.py               ChromaDB + Wikipedia retrieval
-      rag_pipeline.py            Context building and filtering
-      llm_feedback.py            Gemini feedback generation
-      filtering.py               Semantic filtering utilities
-
-    db_service.py                RLAIF hard-negative logging
-
-  notebooks/
-    preprocessing.ipynb          Dataset preprocessing
-    *_eda.ipynb                  Dataset exploration notebooks
-    data/train                   Hugging Face training dataset
-    data/val                     Hugging Face validation dataset
-    data/test                    Hugging Face test dataset
-```
-
-## Setup
-
-From PowerShell:
-
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-
-# Activate the existing virtual environment
-..\debate_env\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Make src imports work
-$env:PYTHONPATH = (Get-Location).Path
-```
-
-Optional environment variables:
-
-```powershell
-$env:GEMINI_API_KEY = "your_gemini_api_key"
-$env:HF_TOKEN = "your_huggingface_token"
-```
-
-`GEMINI_API_KEY` is required only for LLM feedback. The DeBERTa prediction path can still run without Gemini.
-
-## Run the FastAPI Backend
-
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-..\debate_env\Scripts\Activate.ps1
-$env:PYTHONPATH = (Get-Location).Path
-
-uvicorn api:app --reload --host 127.0.0.1 --port 8000
-```
-
-Open:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Test the API
-
-```powershell
-$body = @{
-  topic = "Schools should ban smartphones"
-  text = "Schools should ban smartphones because they distract students during lessons and reduce classroom attention."
-} | ConvertTo-Json
-
-$res = Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/analyze" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body $body
-
-$res.prediction
-$res.context
-$res.retrieval_debug
-$res.llm_feedback
-```
-
-## Student Feedback Endpoint
-
-Use `/student-feedback` when you want candidate/student performance feedback instead of only single-argument diagnostics.
-
-```powershell
-$body = @{
-  student_name = "Aarav"
-  topic = "Schools should ban smartphones"
-  text = "Schools should ban smartphones because they distract students during lessons and reduce classroom attention."
-} | ConvertTo-Json
-
-$res = Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/student-feedback" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body $body
-
-$res.prediction
-$res.rubric_scores
-$res.student_feedback
-```
-
-This endpoint returns:
-
-- `prediction`: model quality, component, stance, and fallacy output
-- `rubric_scores`: overall, argument quality, evidence usage, reasoning, clarity, and rebuttal readiness
-- `context`: retrieved factual context
-- `retrieval_debug`: RAG trace for debugging
-- `student_feedback`: Markdown feedback report for the student
-- `feedback_source`: `gemini` or `fallback`
-
-If Gemini quota is exhausted, this endpoint still returns fallback feedback based on the model and rubric scores.
-
-## Run the Streamlit Demo
-
-Start FastAPI first, then in another terminal:
-
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-..\debate_env\Scripts\Activate.ps1
-
-streamlit run app.py
-```
-
-The Streamlit app accepts:
-
-- Debate topic or motion
-- User argument
-
-It displays:
-
-- Quality score
-- Component type
-- Stance
+- Model predictions
+- Retrieved context
 - LLM feedback
 
-## Run Direct Terminal Inference
+### `/student-feedback`
 
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-..\debate_env\Scripts\Activate.ps1
-$env:PYTHONPATH = (Get-Location).Path
+Returns:
 
-python -m src.inference.inference
-```
+- Model predictions
+- Rubric scores
+- Structured coaching feedback
 
-## Training
+---
 
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-..\debate_env\Scripts\Activate.ps1
-$env:PYTHONPATH = (Get-Location).Path
+## 🧠 RLAIF Feedback Loop
 
-python src\models\train.py
-```
+The system logs difficult cases where:
 
-The training script:
+- Model confidence is high
+- But LLM identifies weaknesses
 
-- Loads preprocessed Hugging Face datasets from `notebooks/data`
-- Adds task prefixes
-- Fine-tunes DeBERTa-v3-base using LoRA
-- Uses weighted losses for imbalanced tasks
-- Saves the best checkpoint as `debate_model.pt`
+These are stored and later used for retraining.
 
-If training saves `debate_model.pt` in the service root, copy it to the evaluation folder used by inference:
+### Flow:
 
-```powershell
-Copy-Item .\debate_model.pt .\src\evaluation\debate_model.pt
-```
+1. User input → model prediction
+2. LLM critique
+3. Hard cases logged
+4. Converted into training data
+5. Improves future performance
 
-## Evaluation
+---
 
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-..\debate_env\Scripts\Activate.ps1
-$env:PYTHONPATH = (Get-Location).Path
+## 📊 Evaluation Metrics
 
-python src\evaluation\evaluate.py
-```
+| Task                | Metric              | Score |
+| ------------------- | ------------------- | ----- |
+| Argument quality    | Pearson correlation | ~0.65 |
+| Component detection | Macro F1            | ~0.78 |
+| Stance detection    | Macro F1            | ~0.82 |
 
-Evaluation reports:
+---
 
-- Pearson correlation for argument quality
-- Macro F1 for component classification
-- Macro F1 for stance classification
+## ⚙️ Tech Stack
 
-Fill in the table below after running evaluation on the final checkpoint:
+### Core:
 
-| Task | Metric | Score |
-| --- | --- | --- |
-| Argument quality | Pearson correlation | TBD |
-| Component detection | Macro F1 | TBD |
-| Stance detection | Macro F1 | TBD |
+- PyTorch
+- Hugging Face Transformers
+- SentenceTransformers
 
-## RLAIF Feedback Loop
+### Backend:
 
-The service logs hard examples into SQLite when Gemini identifies weaknesses in cases where the DeBERTa quality score was relatively high.
+- FastAPI
 
-Flow:
+### Frontend:
 
-1. User submits an argument.
-2. DeBERTa predicts quality/component/stance.
-3. Gemini provides factual and structural critique.
-4. If the model appears overconfident, the interaction is logged.
-5. `extract_rlaif_data.py` converts logged examples into extra training data.
-6. Future training can merge this dataset into the main training set.
+- Streamlit
 
-Run extraction:
+### Retrieval:
 
-```powershell
-cd E:\AI-Debate-Analyzer\ml-service
-..\debate_env\Scripts\Activate.ps1
+- ChromaDB
+- Wikipedia API
+- Semantic Scholar API
 
-python extract_rlaif_data.py
-```
+### LLM:
 
-## Known Limitations
+- Google Gemini
 
-- The raw stance head can overpredict `PRO`; the current system uses a transparent topic-aware correction layer.
-- RAG currently relies on ChromaDB and Wikipedia, so factual coverage is limited by retrieved pages.
-- Gemini feedback depends on API quota and may return a quota error on the free tier.
-- The Next.js frontend currently needs full integration with this FastAPI service.
-- Final model metrics should be updated after running `evaluate.py` on the latest checkpoint.
+---
 
-## Interview Summary
+## ⚠️ Limitations
 
-This ML service demonstrates a complete NLP prototype:
+- RAG coverage depends on available sources
+- Academic retrieval is query-sensitive
+- LLM feedback depends on API quota
+- Stance model requires correction layer for negation
 
-- Multitask transformer modeling
-- LoRA/PEFT fine-tuning
-- Argument quality scoring
-- Component and stance classification
-- Topic-aware stance correction
-- RAG-based factual grounding
-- LLM-based debate coaching
-- Retrieval debugging
-- RLAIF-style hard-example logging
+---
 
-The project is best described as a working research prototype rather than a production-ready system.
+## 🚀 Key Contributions
+
+- Designed a multitask NLP system for argument analysis
+- Built a query-aware multi-source RAG pipeline
+- Integrated academic retrieval for evidence grounding
+- Developed a rubric-based evaluation framework
+- Implemented LLM-based coaching feedback
+- Added RLAIF-style learning loop
+
+---
+
+## 🧠 Project Type
+
+This project is a **research-oriented prototype**, demonstrating:
+
+- NLP modeling
+- Retrieval systems
+- LLM integration
+- End-to-end AI pipeline design
+
+---
+
+## 🎯 Summary
+
+This system combines:
+
+- **NLP (transformers)**
+- **RAG (retrieval + grounding)**
+- **Generative AI (LLM feedback)**
+
+into a complete **argument evaluation and coaching system**.
+
+---

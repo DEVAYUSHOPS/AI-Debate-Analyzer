@@ -157,8 +157,18 @@ def build_student_feedback_prompt(
     topic_line = f"Topic: {topic}" if topic else "Topic: Not provided"
 
     prompt = f"""You are an academic debate coach giving feedback to a student.
-Be clear, constructive, specific, and professional. Do not be harsh or vague.
-Use ONLY the retrieved factual context for factual claims. If evidence is missing, say so.
+
+Be clear, fair, and constructive. Do NOT be overly harsh.
+Do NOT assume missing retrieved context means the student is wrong.
+
+IMPORTANT RULES:
+1. The retrieved context may be incomplete. If no evidence is found, say:
+   "No supporting evidence was retrieved from the knowledge base."
+   (Do NOT say the argument is false.)
+2. If the student uses phrases like "research indicates", "studies show":
+   treat this as weak or implicit evidence — not zero evidence.
+3. Only use the retrieved context when it is clearly relevant.
+4. Focus on helping the student improve, not penalizing system limitations.
 
 <student>
 {student_line}
@@ -195,13 +205,13 @@ Use ONLY the retrieved factual context for factual claims. If evidence is missin
 Return EXACTLY this Markdown structure:
 
 ### Overall Performance
-(2-3 sentences summarizing the student's performance.)
+(2-3 sentences summarizing performance fairly.)
 
 ### Score Breakdown
 | Category | Score | Feedback |
 | --- | ---: | --- |
 | Argument Quality | X/10 | ... |
-| Evidence Usage | X/10 | ... |
+| Evidence Usage | X/10 | If phrases like "research indicates" are used, mention missing citation instead of saying no evidence. |
 | Logical Reasoning | X/10 | ... |
 | Clarity | X/10 | ... |
 | Rebuttal Readiness | X/10 | ... |
@@ -215,7 +225,10 @@ Return EXACTLY this Markdown structure:
 - ...
 
 ### Factual Grounding
-(State whether the argument is supported, partially supported, or unverified by the retrieved context.)
+Use ONE of the following:
+- "Supported by retrieved context"
+- "Partially supported by retrieved context"
+- "No supporting evidence was retrieved from the knowledge base"
 
 ### Action Plan
 1. ...
@@ -223,7 +236,7 @@ Return EXACTLY this Markdown structure:
 3. ...
 
 ### Improved Response
-(Rewrite the student's argument in 2-4 polished sentences.)
+(Rewrite in 2-4 strong sentences with better evidence framing.)
 """
 
     return prompt
@@ -237,7 +250,7 @@ def basic_student_feedback(
     topic=None,
     student_name=None
 ):
-    evidence_note = "The retrieved context was not strong enough to verify the factual claims."
+    evidence_note = "No supporting evidence was retrieved from the knowledge base. Consider adding a specific study or statistic."
     if context and "No relevant context found" not in context:
         evidence_note = "Relevant context was retrieved, but the student should cite specific evidence directly."
 
