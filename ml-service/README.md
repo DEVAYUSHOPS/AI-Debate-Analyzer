@@ -199,6 +199,39 @@ $res.retrieval_debug
 $res.llm_feedback
 ```
 
+## Student Feedback Endpoint
+
+Use `/student-feedback` when you want candidate/student performance feedback instead of only single-argument diagnostics.
+
+```powershell
+$body = @{
+  student_name = "Aarav"
+  topic = "Schools should ban smartphones"
+  text = "Schools should ban smartphones because they distract students during lessons and reduce classroom attention."
+} | ConvertTo-Json
+
+$res = Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/student-feedback" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+
+$res.prediction
+$res.rubric_scores
+$res.student_feedback
+```
+
+This endpoint returns:
+
+- `prediction`: model quality, component, stance, and fallacy output
+- `rubric_scores`: overall, argument quality, evidence usage, reasoning, clarity, and rebuttal readiness
+- `context`: retrieved factual context
+- `retrieval_debug`: RAG trace for debugging
+- `student_feedback`: Markdown feedback report for the student
+- `feedback_source`: `gemini` or `fallback`
+
+If Gemini quota is exhausted, this endpoint still returns fallback feedback based on the model and rubric scores.
+
 ## Run the Streamlit Demo
 
 Start FastAPI first, then in another terminal:
