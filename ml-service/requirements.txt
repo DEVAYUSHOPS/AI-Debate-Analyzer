@@ -7,12 +7,13 @@ matplotlib
 nltk
 torch
 transformers
-fastapi 
-uvicorn
+fastapi
+uvicorn==0.30.6
 pydantic
 streamlit
 peft
 accelerate
+huggingface_hub
 python-dotenv
 tiktoken
 wandb

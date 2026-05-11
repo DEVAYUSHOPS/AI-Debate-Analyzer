@@ -5,6 +5,7 @@ import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 from dotenv import load_dotenv
 from huggingface_hub import login
+from huggingface_hub import hf_hub_download
 
 from peft import LoraConfig, get_peft_model, TaskType
 from .fallacy_detector import detect_fallacy
@@ -64,6 +65,38 @@ if hf_token:
     login(token=hf_token)
 
 
+def get_model_path():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.abspath(os.path.join(current_dir, "../evaluation/debate_model.pt"))
+
+    if os.path.exists(model_path):
+        return model_path
+
+    repo_id = os.getenv("HF_MODEL_REPO")
+    filename = os.getenv("HF_MODEL_FILENAME", "debate_model.pt")
+
+    if not repo_id:
+        raise FileNotFoundError(
+            "Missing debate_model.pt and HF_MODEL_REPO is not set. "
+            "Set HF_MODEL_REPO to your Hugging Face model repo, for example "
+            "'your-username/ai-debate-analyzer-model'."
+        )
+
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    downloaded_path = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        token=hf_token,
+        local_dir=os.path.dirname(model_path),
+        local_dir_use_symlinks=False,
+    )
+
+    if downloaded_path != model_path and os.path.exists(downloaded_path):
+        os.replace(downloaded_path, model_path)
+
+    return model_path
+
+
 # =========================
 # Model
 # =========================
@@ -113,8 +146,7 @@ class DebateAnalyzer:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(current_dir, "../evaluation/debate_model.pt")
+        model_path = get_model_path()
 
         self.model = MultiTaskModel().to(self.device)
         self.model.load_state_dict(torch.load(model_path, map_location=self.device), strict=False)

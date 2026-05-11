@@ -1,6 +1,9 @@
 debate_env/
+.venv/
 *.pt
 *.pth
 *.env
+!*.env.example
+!**/.env.example
 __pycache__/
 *.log
