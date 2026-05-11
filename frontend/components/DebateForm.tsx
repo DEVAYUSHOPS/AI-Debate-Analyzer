@@ -42,10 +42,16 @@ const DebateForm = () => {
       });
 
       const data = await res.json();
+
+      if (!res.ok || !data.debateId) {
+        throw new Error(data.error || "Debate analysis failed");
+      }
+
       router.push(`/result/${data.debateId}`);
 
     } catch (error) {
-      console.log(error);
+      console.error(error);
+      alert(error instanceof Error ? error.message : "Error submitting debate");
     } finally {
       setLoading(false);
     }

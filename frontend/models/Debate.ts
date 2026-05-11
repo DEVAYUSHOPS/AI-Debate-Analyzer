@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 
+const { Schema } = mongoose;
+
 const RoundSchema = new mongoose.Schema({
   round: String,
   speakerA: String,
@@ -29,8 +31,11 @@ const DebateSchema = new mongoose.Schema({
       speakerB: Number
     },
     claims: [String],
+    counterclaims: [String],
     evidence: [String],
-    fallacies: [String]
+    fallacies: [String],
+    biasLevel: String,
+    turnAnalyses: [Schema.Types.Mixed]
   }
 }, { timestamps: true });
 

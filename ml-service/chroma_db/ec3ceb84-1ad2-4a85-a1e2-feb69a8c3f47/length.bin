@@ -1,1 +1,12 @@
-invalid type: string "School uniform is a practice that dates to the 16th century in England. Charity schools such Christ's Hospital, founded in 1552 in London, were among the first schools to use a uniform for their students. The earliest documented proof of institutionalised use of a standard academic dress dates back to 1222 when the Archbishop of Canterbury ordered wearing of the cappa clausa.
+k} = P_q -
+    P_k\\)
+
+    Args:
+        query_size (int): the length of query
+        key_size (int): the length of key
+        bucket_size (int): the size of position bucket
+        max_position (int): the maximum allowed absolute position
+        device (`torch.device`): the device on which tensors will be created.
+
+    Return:
+        `torch.LongTensor`: A tensor with shape [1, query_size, key

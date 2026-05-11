@@ -91,11 +91,15 @@ const submitDebate = async () => {
     const data = await res.json();
     console.log("API response:", data);
 
+    if (!res.ok || !data.debateId) {
+      throw new Error(data.error || "Debate analysis failed");
+    }
+
     router.push(`/result/${data.debateId}`);
 
   } catch (error) {
     console.error(error);
-    alert("Error submitting debate");
+    alert(error instanceof Error ? error.message : "Error submitting debate");
   }
   
 };

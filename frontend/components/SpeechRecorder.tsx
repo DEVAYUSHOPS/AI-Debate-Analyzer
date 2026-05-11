@@ -1,23 +1,49 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Props {
   onTranscript: (text: string) => void;
   onStopRef?: (fn: () => void) => void;
 }
 
+type SpeechRecognitionResultList = {
+  length: number;
+  [index: number]: {
+    [index: number]: {
+      transcript: string;
+    };
+  };
+};
 
+type SpeechRecognitionEvent = {
+  results: SpeechRecognitionResultList;
+};
+
+type SpeechRecognitionInstance = {
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: (event: SpeechRecognitionEvent) => void;
+  onend: () => void;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+type SpeechRecognitionWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
 
 const SpeechRecorder = ({ onTranscript, onStopRef }: Props) => {
-
   const [isRecording, setIsRecording] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   const startRecording = () => {
+    const speechWindow = window as SpeechRecognitionWindow;
     const SpeechRecognition =
-      (window as any).webkitSpeechRecognition ||
-      (window as any).SpeechRecognition;
+      speechWindow.webkitSpeechRecognition || speechWindow.SpeechRecognition;
 
     if (!SpeechRecognition) {
       alert("Speech Recognition not supported");
@@ -28,7 +54,7 @@ const SpeechRecorder = ({ onTranscript, onStopRef }: Props) => {
     recognition.continuous = true;
     recognition.interimResults = true;
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let transcript = "";
 
       for (let i = 0; i < event.results.length; i++) {
@@ -48,42 +74,38 @@ const SpeechRecorder = ({ onTranscript, onStopRef }: Props) => {
     setIsRecording(true);
   };
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
     }
     setIsRecording(false);
-  };
+  }, []);
+
   useEffect(() => {
-  if (onStopRef) {
-    onStopRef(stopRecording);
-  }
-}, []);
-  
-  
+    if (onStopRef) {
+      onStopRef(stopRecording);
+    }
+  }, [onStopRef, stopRecording]);
 
   return (
     <div className="space-y-4">
-
       <div className="flex gap-4 justify-center">
-
         {!isRecording ? (
           <button
             onClick={startRecording}
             className="bg-green-600 text-white px-4 py-2 rounded-md"
           >
-            🎤 Start Recording
+            Start Recording
           </button>
         ) : (
           <button
             onClick={stopRecording}
             className="bg-red-500 text-white px-4 py-2 rounded-md"
           >
-            ⏹ Stop Recording
+            Stop Recording
           </button>
         )}
-
       </div>
 
       {isRecording && (
@@ -91,7 +113,6 @@ const SpeechRecorder = ({ onTranscript, onStopRef }: Props) => {
           Listening...
         </p>
       )}
-
     </div>
   );
 };

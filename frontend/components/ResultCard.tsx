@@ -1,7 +1,7 @@
 import { Debate } from "@/types/debate";
 import ScoreChart from "./ScoreChart";
 import ArgumentGraph from "./ArgumentGraph";
-import { Trophy, BarChart3, Brain } from "lucide-react";
+import { BarChart3, Brain } from "lucide-react";
 import DownloadReportButton from "./DownloadReportButton";
 
 interface ResultCardProps {
@@ -15,6 +15,7 @@ const ResultCard = ({ debate }: ResultCardProps) => {
 
   const scoreA = debate.analysis.speakerScores.speakerA;
   const scoreB = debate.analysis.speakerScores.speakerB;
+  const turnAnalyses = debate.analysis.turnAnalyses ?? [];
 
   return (
     <div className="max-w-4xl mx-auto mt-10 bg-white border border-gray-200 rounded-xl shadow-md p-8 space-y-8">
@@ -70,6 +71,35 @@ const ResultCard = ({ debate }: ResultCardProps) => {
           ))}
         </ul>
       </div>
+      {turnAnalyses.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">
+            AI Coaching Feedback
+          </h3>
+
+          <div className="space-y-4">
+            {turnAnalyses.map((turn, index) => (
+              <div
+                key={`${turn.round}-${turn.speakerKey}-${index}`}
+                className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <h4 className="font-semibold text-gray-800">
+                    {turn.speakerName} - {turn.round}
+                  </h4>
+                  <span className="text-sm text-gray-600">
+                    Score: {turn.ml.rubric_scores?.overall ?? "N/A"}
+                  </span>
+                </div>
+
+                <p className="whitespace-pre-line text-gray-700 text-sm">
+                  {turn.ml.student_feedback || turn.ml.llm_feedback || "No feedback available"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
   <h3 className="text-lg font-semibold text-gray-800 mb-3">
     📚 Evidence

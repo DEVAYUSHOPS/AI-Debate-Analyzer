@@ -3,7 +3,6 @@ import { connectDB } from "@/lib/db";
 import Debate from "@/models/Debate";
 
 export async function GET(
-  req: Request,
 ) {
   await connectDB();
 
