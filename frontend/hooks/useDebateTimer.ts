@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
-export const useDebateTimer = (initialTime: number, onFinish: () => void) => {
+export const useDebateTimer = (
+  initialTime: number,
+  onFinish: () => void,
+  resetKey: string
+) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const onFinishRef = useRef(onFinish);
   const hasFinishedRef = useRef(false);
@@ -14,7 +18,7 @@ export const useDebateTimer = (initialTime: number, onFinish: () => void) => {
     // The timer must reset when a new debate round starts.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimeLeft(initialTime);
-  }, [initialTime]);
+  }, [initialTime, resetKey]);
 
   useEffect(() => {
     if (timeLeft <= 0) {

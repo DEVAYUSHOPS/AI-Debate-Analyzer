@@ -10,6 +10,10 @@ export const useDebateEngine = () => {
     roundIndex === debateRounds.length - 1 && speaker === "B";
 
   const nextTurn = () => {
+    if (isFinished) {
+      return;
+    }
+
     if (speaker === "A") {
       setSpeaker("B");
     } else {

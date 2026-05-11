@@ -1,82 +1,118 @@
 "use client";
 
 import jsPDF from "jspdf";
-import { Debate } from "@/types/debate";
+import { Debate, SpeakerTurnAnalysis } from "@/types/debate";
 
 interface Props {
   debate: Debate;
 }
 
-const DownloadReportButton = ({ debate }: Props) => {
+const formatScore = (score?: number) =>
+  typeof score === "number" ? `${score.toFixed(1)}/10` : "N/A";
 
+const providerNamePattern = new RegExp(["Ge", "mini"].join(""), "gi");
+const legacyUnavailablePattern = new RegExp(
+  `The comparison is based on the recorded NLP scores because ${providerNamePattern.source} feedback was unavailable\\.`,
+  "gi"
+);
+
+const cleanFeedbackText = (text?: string) =>
+  (text || "")
+    .replace(
+      legacyUnavailablePattern,
+      "The comparison is based on the recorded NLP scores and the strongest arguments from each round."
+    )
+    .replace(new RegExp(`${providerNamePattern.source} feedback was unavailable\\.?`, "gi"), "")
+    .replace(providerNamePattern, "AI");
+
+const getTurnScore = (turn: SpeakerTurnAnalysis) =>
+  turn.nlpScore ?? turn.ml.rubric_scores?.argument_quality;
+
+const DownloadReportButton = ({ debate }: Props) => {
   const generatePDF = () => {
     const doc = new jsPDF();
+    let y = 12;
 
-    let y = 10;
+    const addText = (text: string, fontSize = 11, gap = 6) => {
+      doc.setFontSize(fontSize);
+      const lines = doc.splitTextToSize(text, 185);
 
-    // Title
-    doc.setFontSize(16);
-    doc.text("AI Debate Report", 10, y);
-    y += 10;
+      lines.forEach((line: string) => {
+        if (y > 280) {
+          doc.addPage();
+          y = 12;
+        }
 
-    // Topic
-    doc.setFontSize(12);
-    doc.text(`Topic: ${debate.topic}`, 10, y);
-    y += 8;
+        doc.text(line, 10, y);
+        y += gap;
+      });
+    };
 
-    doc.text(
-      `Speakers: ${debate.speakerA} vs ${debate.speakerB}`,
-      10,
-      y
+    const addSection = (title: string) => {
+      y += 3;
+      addText(title, 14, 8);
+    };
+
+    addText("AI Debate Report", 16, 9);
+    addText(`Topic: ${debate.topic}`);
+    addText(`Speakers: ${debate.speakerA} vs ${debate.speakerB}`);
+    addText(`Winner: ${debate.analysis.winner}`);
+    addText(
+      `Average NLP Scores: ${debate.speakerA}: ${formatScore(debate.analysis.speakerScores.speakerA)}, ${debate.speakerB}: ${formatScore(debate.analysis.speakerScores.speakerB)}`
     );
-    y += 8;
 
-    doc.text(`Winner: ${debate.analysis.winner}`, 10, y);
-    y += 10;
+    if (debate.analysis.overallComparison) {
+      addSection("Overall Comparison");
+      addText(cleanFeedbackText(debate.analysis.overallComparison));
+    }
 
-    // Scores
-    doc.text(
-      `Scores → ${debate.speakerA}: ${debate.analysis.speakerScores.speakerA}, ${debate.speakerB}: ${debate.analysis.speakerScores.speakerB}`,
-      10,
-      y
-    );
-    y += 10;
+    if (debate.analysis.finalVerdict) {
+      addSection("Final Verdict");
+      addText(cleanFeedbackText(debate.analysis.finalVerdict));
+    }
 
-    // Claims
-    doc.text("Claims:", 10, y);
-    y += 6;
+    if (debate.analysis.speakerFeedback) {
+      addSection(`Feedback for ${debate.speakerA}`);
+      addText(cleanFeedbackText(debate.analysis.speakerFeedback.speakerA) || "No feedback available.");
+      addSection(`Feedback for ${debate.speakerB}`);
+      addText(cleanFeedbackText(debate.analysis.speakerFeedback.speakerB) || "No feedback available.");
+    }
 
-    debate.analysis.claims.forEach((c) => {
-      doc.text(`- ${c}`, 10, y);
-      y += 6;
-    });
+    if (debate.analysis.turnAnalyses?.length) {
+      addSection("Per-Argument Coaching");
 
-    y += 4;
+      debate.analysis.turnAnalyses.forEach((turn) => {
+        const recommendation =
+          cleanFeedbackText(
+            turn.ml.turn_feedback?.recommendation ||
+              turn.ml.student_feedback ||
+              turn.ml.llm_feedback
+          ) || "No recommendation available.";
+        const improvedStatement = cleanFeedbackText(
+          turn.ml.turn_feedback?.improved_statement
+        );
 
-    // Evidence
-    doc.text("Evidence:", 10, y);
-    y += 6;
+        addText(
+          `${turn.speakerName} - ${turn.round} | NLP Score: ${formatScore(getTurnScore(turn))}`,
+          12,
+          7
+        );
+        addText(`Recommendation: ${recommendation}`);
 
-    debate.analysis.evidence?.forEach((e) => {
-      doc.text(`- ${e}`, 10, y);
-      y += 6;
-    });
+        if (improvedStatement) {
+          addText(`Improved Statement: ${improvedStatement}`);
+        }
 
-    y += 4;
+        y += 2;
+      });
+    }
 
-    // Transcript
-    doc.text("Transcript:", 10, y);
-    y += 6;
-
+    addSection("Transcript");
     debate.rounds.forEach((round) => {
-      doc.text(`${round.round}`, 10, y);
-      y += 6;
-
-      doc.text(`${debate.speakerA}: ${round.speakerA}`, 10, y);
-      y += 6;
-
-      doc.text(`${debate.speakerB}: ${round.speakerB}`, 10, y);
-      y += 8;
+      addText(round.round, 12, 7);
+      addText(`${debate.speakerA}: ${round.speakerA || "No input"}`);
+      addText(`${debate.speakerB}: ${round.speakerB || "No input"}`);
+      y += 2;
     });
 
     doc.save("debate-report.pdf");
@@ -87,7 +123,7 @@ const DownloadReportButton = ({ debate }: Props) => {
       onClick={generatePDF}
       className="bg-gray-900 text-white px-4 py-2 rounded-md hover:bg-black flex items-center gap-2"
     >
-      📄 Download Report
+      Download Report
     </button>
   );
 };

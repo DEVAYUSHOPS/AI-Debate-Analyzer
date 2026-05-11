@@ -26,10 +26,19 @@ const DebateSchema = new mongoose.Schema({
 
   analysis: {
     winner: String,
+    winnerKey: String,
     speakerScores: {
       speakerA: Number,
       speakerB: Number
     },
+    overallComparison: String,
+    speakerFeedback: {
+      speakerA: String,
+      speakerB: String
+    },
+    finalVerdict: String,
+    feedbackSource: String,
+    feedbackError: String,
     claims: [String],
     counterclaims: [String],
     evidence: [String],

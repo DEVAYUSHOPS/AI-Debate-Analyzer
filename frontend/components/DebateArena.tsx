@@ -1,12 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useDebateEngine } from "@/hooks/useDebateEngine";
 import { useDebateTimer } from "@/hooks/useDebateTimer";
 import SpeechRecorder from "./SpeechRecorder";
-import { useRouter } from "next/navigation";
-
-
 
 interface Props {
   mode: "text" | "speech";
@@ -15,20 +13,26 @@ interface Props {
   speakerB: string;
 }
 
-const DebateArena = ({ mode, topic, speakerA,speakerB }: Props) => {
+const DebateArena = ({ mode, topic, speakerA, speakerB }: Props) => {
   const router = useRouter();
+  const { round, speaker, nextTurn, isFinished } = useDebateEngine();
+  const stopRef = useRef<(() => void) | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { round, speaker, nextTurn,isFinished } = useDebateEngine();
-
-  const timeLeft = useDebateTimer(round.time, () => {
-    nextTurn();
-  });
-  const stopRef = useRef<() => void | null>(null);
+  const timeLeft = useDebateTimer(
+    round.time,
+    () => {
+      if (!isFinished) {
+        nextTurn();
+      }
+    },
+    `${round.name}-${speaker}`
+  );
 
   const [transcript, setTranscript] = useState({
     opening: { A: "", B: "" },
     rebuttal: { A: "", B: "" },
-    closing: { A: "", B: "" }
+    closing: { A: "", B: "" },
   });
 
   const roundKey =
@@ -37,6 +41,9 @@ const DebateArena = ({ mode, topic, speakerA,speakerB }: Props) => {
       : round.name === "Rebuttal"
       ? "rebuttal"
       : "closing";
+
+  const currentSpeakerName = speaker === "A" ? speakerA : speakerB;
+  const currentTurnText = transcript[roundKey][speaker];
 
   const handleTranscriptChange = (
     e: React.ChangeEvent<HTMLTextAreaElement>
@@ -47,12 +54,12 @@ const DebateArena = ({ mode, topic, speakerA,speakerB }: Props) => {
       ...prev,
       [roundKey]: {
         ...prev[roundKey],
-        [speaker]: value
-      }
+        [speaker]: value,
+      },
     }));
   };
-  const buildPayload = () => {
-  return {
+
+  const buildPayload = () => ({
     topic,
     speakerA,
     speakerB,
@@ -61,80 +68,67 @@ const DebateArena = ({ mode, topic, speakerA,speakerB }: Props) => {
       {
         round: "Opening Statement",
         speakerA: transcript.opening.A,
-        speakerB: transcript.opening.B
+        speakerB: transcript.opening.B,
       },
       {
         round: "Rebuttal",
         speakerA: transcript.rebuttal.A,
-        speakerB: transcript.rebuttal.B
+        speakerB: transcript.rebuttal.B,
       },
       {
         round: "Closing Statement",
         speakerA: transcript.closing.A,
-        speakerB: transcript.closing.B
-      }
-    ]
-  };
-};
-const submitDebate = async () => {
-  try {
-    const payload = buildPayload();
-
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
+        speakerB: transcript.closing.B,
       },
-      body: JSON.stringify(payload)
-    });
+    ],
+  });
 
-    const data = await res.json();
-    console.log("API response:", data);
+  const submitDebate = async () => {
+    try {
+      setIsSubmitting(true);
 
-    if (!res.ok || !data.debateId) {
-      throw new Error(data.error || "Debate analysis failed");
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(buildPayload()),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.debateId) {
+        throw new Error(data.error || "Debate analysis failed");
+      }
+
+      router.push(`/result/${data.debateId}`);
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "Error submitting debate");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    router.push(`/result/${data.debateId}`);
-
-  } catch (error) {
-    console.error(error);
-    alert(error instanceof Error ? error.message : "Error submitting debate");
-  }
-  
-};
+  };
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-6">
       <div>
-  <h1 className="text-lg font-bold text-gray-800">
-    {topic}
-  </h1>
-  <p className="text-gray-600">
-    {speakerA} vs {speakerB}
-  </p>
-</div>
+        <h1 className="text-lg font-bold text-gray-800">{topic}</h1>
+        <p className="text-gray-600">
+          {speakerA} vs {speakerB}
+        </p>
+      </div>
 
-      {/* Round Info */}
       <div className="flex justify-between items-center">
-
         <div>
-          <h2 className="text-xl font-semibold text-gray-800">
-            {round.name}
-          </h2>
-
-          <p className="text-gray-600">
-            Speaker: {speaker}
-          </p>
+          <h2 className="text-xl font-semibold text-gray-800">{round.name}</h2>
+          <p className="text-gray-600">Speaker: {currentSpeakerName}</p>
         </div>
 
         <div className="text-2xl font-bold text-blue-600">
-          ⏱ {timeLeft}s
+          Timer: {timeLeft}s
         </div>
-
       </div>
-
-      {/* Input Area */}
 
       {mode === "text" && (
         <textarea
@@ -147,15 +141,14 @@ const submitDebate = async () => {
 
       {mode === "speech" && (
         <div className="space-y-4">
-
           <SpeechRecorder
             onTranscript={(text) => {
               setTranscript((prev) => ({
                 ...prev,
                 [roundKey]: {
                   ...prev[roundKey],
-                  [speaker]: text
-                }
+                  [speaker]: text,
+                },
               }));
             }}
             onStopRef={(fn) => (stopRef.current = fn)}
@@ -164,36 +157,38 @@ const submitDebate = async () => {
           <p className="text-gray-700 border rounded p-3 min-h-20">
             {transcript[roundKey][speaker] || "Transcript will appear here..."}
           </p>
-
         </div>
       )}
 
-      {/* Controls */}
       <div className="flex justify-end gap-4">
-
         <button
-  onClick={async () => {
-    stopRef.current?.();
+          onClick={async () => {
+            stopRef.current?.();
 
-    if (isFinished) {
-      await submitDebate();
-      return;
-    }
+            if (!currentTurnText.trim()) {
+              alert(`Please enter ${currentSpeakerName}'s argument before continuing.`);
+              return;
+            }
 
-    nextTurn();
-  }}
-  className="bg-blue-600 text-white px-4 py-2 rounded-md"
->
-  {isFinished ? "Finish Debate" : "Next Turn"}
-</button>
-{isFinished && (
-  <p className="text-green-600 font-medium">
-    Final turn — ready to submit
-  </p>
-)}
+            if (isFinished) {
+              await submitDebate();
+              return;
+            }
 
+            nextTurn();
+          }}
+          disabled={isSubmitting}
+          className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isSubmitting ? "Analyzing..." : isFinished ? "Finish Debate" : "Next Turn"}
+        </button>
+
+        {isFinished && (
+          <p className="text-green-600 font-medium">
+            Final turn - ready to submit
+          </p>
+        )}
       </div>
-
     </div>
   );
 };

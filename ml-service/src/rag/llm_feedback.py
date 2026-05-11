@@ -1,12 +1,14 @@
-# src/rag/llm_feedback.py
-
+import json
 import os
+import re
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from .rag_pipeline import build_context
 
 
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 load_dotenv()
 
 
@@ -89,7 +91,7 @@ def call_llm(prompt):
 
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            return "Gemini API key missing. Please add GEMINI_API_KEY to your .env file."
+            return "LLM API key missing. Please add GEMINI_API_KEY to your .env file."
 
         client = genai.Client(api_key=api_key)
 
@@ -106,7 +108,7 @@ def call_llm(prompt):
     except ImportError:
         return "Google GenAI SDK not installed. Run: pip install google-genai"
     except Exception as e:
-        return f"Error calling Gemini API: {str(e)}"
+        return f"Error calling LLM API: {str(e)}"
 
 
 def llm_unavailable(response_text):
@@ -115,7 +117,7 @@ def llm_unavailable(response_text):
 
     failure_markers = [
         "api key missing",
-        "error calling gemini",
+        "error calling llm",
         "google genai sdk not installed",
         "resource_exhausted",
         "quota",
@@ -123,6 +125,38 @@ def llm_unavailable(response_text):
 
     normalized = response_text.lower()
     return any(marker in normalized for marker in failure_markers)
+
+
+def clamp_10(score, fallback=0.0):
+    try:
+        numeric_score = float(score)
+    except (TypeError, ValueError):
+        numeric_score = fallback
+
+    return round(max(0.0, min(10.0, numeric_score)), 1)
+
+
+def parse_json_object(response_text):
+    if not response_text:
+        return None
+
+    cleaned = response_text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if not match:
+        return None
+
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
 
 
 # =========================
@@ -330,11 +364,529 @@ def generate_student_feedback(
             feedback,
         )
 
-    return feedback, "gemini", None
+    return feedback, "llm", None
 
 
 # =========================
-# 5. Optional: Lightweight Mode
+# 5. Debate Flow Feedback
+# =========================
+def build_argument_turn_feedback_prompt(
+    argument,
+    context,
+    model_scores,
+    rubric_scores,
+    topic=None,
+    student_name=None,
+    round_name=None,
+):
+    student_line = student_name or "Candidate"
+    topic_line = topic or "Not provided"
+    round_line = round_name or "Argument"
+
+    return f"""You are a debate coach giving feedback for one speaking turn.
+
+Write only what helps this speaker improve this exact argument. Do not compare
+against the opponent in this per-turn feedback.
+
+Topic: {topic_line}
+Round: {round_line}
+Speaker: {student_line}
+
+<argument>
+{argument}
+</argument>
+
+<nlp_model_analysis>
+- Argument Quality: {model_scores.get("argument_quality", "N/A")}
+- Component: {model_scores.get("component", "N/A")}
+- Stance: {model_scores.get("stance", "N/A")}
+- Fallacy: {model_scores.get("fallacy", "N/A")}
+</nlp_model_analysis>
+
+<rubric_scores>
+- Overall: {rubric_scores.get("overall", "N/A")}/10
+- Argument Quality: {rubric_scores.get("argument_quality", "N/A")}/10
+- Evidence Usage: {rubric_scores.get("evidence_usage", "N/A")}/10
+- Logical Reasoning: {rubric_scores.get("logical_reasoning", "N/A")}/10
+- Clarity: {rubric_scores.get("clarity", "N/A")}/10
+- Rebuttal Readiness: {rubric_scores.get("rebuttal_readiness", "N/A")}/10
+</rubric_scores>
+
+<retrieved_factual_context>
+{context}
+</retrieved_factual_context>
+
+Return ONLY valid JSON with this shape:
+{{
+  "recommendation": "One concise paragraph, 45-90 words, with the most important improvement recommendation.",
+  "improved_statement": "A stronger version of the student's argument in 2-4 sentences."
+}}
+"""
+
+
+def basic_argument_turn_feedback(
+    argument,
+    model_scores,
+    rubric_scores,
+    context=None,
+    topic=None,
+    student_name=None,
+    round_name=None,
+):
+    evidence_note = "Add one concrete source, example, statistic, or study to make the claim easier to verify."
+    if context and "No supporting evidence retrieved" not in context:
+        evidence_note = "Use the retrieved evidence more directly by naming the fact and connecting it to the claim."
+
+    fallacy = model_scores.get("fallacy", "None")
+    fallacy_note = ""
+    if fallacy and fallacy != "None":
+        fallacy_note = f" Also revise the reasoning to avoid {fallacy.lower()}."
+
+    recommendation = (
+        f"{student_name or 'The speaker'} has a usable point for {round_name or 'this turn'}, "
+        f"but it needs sharper reasoning and evidence. {evidence_note}{fallacy_note} "
+        f"Aim for one clear claim, one specific reason, and one sentence explaining why it matters for the topic."
+    )
+
+    improved_statement = (
+        f"On the topic {topic or 'being debated'}, {argument.strip()} "
+        "This point is stronger when it is supported with a specific example or statistic and linked clearly to the debate impact."
+    )
+
+    return {
+        "recommendation": recommendation,
+        "improved_statement": improved_statement,
+    }
+
+
+def generate_argument_turn_feedback(
+    argument,
+    model_scores,
+    rubric_scores,
+    topic=None,
+    context=None,
+    student_name=None,
+    round_name=None,
+):
+    if context is None:
+        context = build_context(argument, topic=topic)
+
+    prompt = build_argument_turn_feedback_prompt(
+        argument=argument,
+        context=context,
+        model_scores=model_scores,
+        rubric_scores=rubric_scores,
+        topic=topic,
+        student_name=student_name,
+        round_name=round_name,
+    )
+
+    feedback = call_llm(prompt)
+
+    if llm_unavailable(feedback):
+        return (
+            basic_argument_turn_feedback(
+                argument=argument,
+                model_scores=model_scores,
+                rubric_scores=rubric_scores,
+                context=context,
+                topic=topic,
+                student_name=student_name,
+                round_name=round_name,
+            ),
+            "fallback",
+            feedback,
+        )
+
+    parsed = parse_json_object(feedback)
+    if not parsed:
+        fallback = basic_argument_turn_feedback(
+            argument=argument,
+            model_scores=model_scores,
+            rubric_scores=rubric_scores,
+            context=context,
+            topic=topic,
+            student_name=student_name,
+            round_name=round_name,
+        )
+        fallback["recommendation"] = feedback.strip()
+        return fallback, "llm_unparsed", "Could not parse LLM JSON response."
+
+    return (
+        {
+            "recommendation": str(parsed.get("recommendation", "")).strip(),
+            "improved_statement": str(parsed.get("improved_statement", "")).strip(),
+        },
+        "llm",
+        None,
+    )
+
+
+def build_overall_debate_feedback_prompt(
+    topic,
+    speaker_a,
+    speaker_b,
+    turn_summaries,
+    speaker_scores,
+):
+    summaries_json = json.dumps(turn_summaries, ensure_ascii=False, indent=2)
+
+    return f"""You are a fair debate judge comparing two candidates across a full debate.
+
+Use the NLP turn scores as evidence, but judge the debate holistically across
+opening statement, rebuttal, and closing statement. Consider clarity, reasoning,
+evidence, responsiveness, and final persuasive force.
+
+Topic: {topic or "Not provided"}
+Speaker A: {speaker_a}
+Speaker B: {speaker_b}
+
+<average_nlp_scores_out_of_10>
+Speaker A: {speaker_scores.get("speakerA", 0)}
+Speaker B: {speaker_scores.get("speakerB", 0)}
+</average_nlp_scores_out_of_10>
+
+<turn_summaries>
+{summaries_json}
+</turn_summaries>
+
+Return ONLY valid JSON with this shape:
+{{
+  "speakerA_score": 0.0,
+  "speakerB_score": 0.0,
+  "winner_key": "speakerA",
+  "overall_comparison": "One paragraph comparing both candidates across the debate.",
+  "speakerA_feedback": "One paragraph of candidate-specific feedback for Speaker A.",
+  "speakerB_feedback": "One paragraph of candidate-specific feedback for Speaker B.",
+  "final_verdict": "One paragraph explaining why the winner won."
+}}
+
+Rules:
+- Scores must be numbers from 0 to 10 with at most one decimal place.
+- winner_key must be either "speakerA" or "speakerB".
+- The winner must match the higher score. If scores are tied, choose the candidate with the stronger rebuttal and closing.
+"""
+
+
+def basic_overall_debate_feedback(topic, speaker_a, speaker_b, speaker_scores):
+    score_a = clamp_10(speaker_scores.get("speakerA", 0))
+    score_b = clamp_10(speaker_scores.get("speakerB", 0))
+    winner_key = "speakerA" if score_a >= score_b else "speakerB"
+    winner_name = speaker_a if winner_key == "speakerA" else speaker_b
+
+    return {
+        "speakerA_score": score_a,
+        "speakerB_score": score_b,
+        "winner_key": winner_key,
+        "winner_name": winner_name,
+        "overall_comparison": (
+            f"{speaker_a} averaged {score_a}/10 and {speaker_b} averaged {score_b}/10 across the debate. "
+            "The comparison is based on the recorded NLP scores and the strongest arguments from each round."
+        ),
+        "speakerA_feedback": (
+            f"{speaker_a} should keep the strongest claim from each round, add more specific evidence, "
+            "and make the closing statement clearly summarize why their side outweighs the opponent."
+        ),
+        "speakerB_feedback": (
+            f"{speaker_b} should strengthen evidence, answer the opponent more directly in rebuttal, "
+            "and use the closing statement to connect reasoning to the debate topic."
+        ),
+        "final_verdict": f"{winner_name} wins on the available average score and overall consistency.",
+    }
+
+
+def normalize_overall_feedback(parsed, speaker_a, speaker_b, speaker_scores):
+    fallback = basic_overall_debate_feedback(None, speaker_a, speaker_b, speaker_scores)
+
+    score_a = clamp_10(parsed.get("speakerA_score"), fallback["speakerA_score"])
+    score_b = clamp_10(parsed.get("speakerB_score"), fallback["speakerB_score"])
+
+    winner_key = parsed.get("winner_key")
+    if winner_key not in {"speakerA", "speakerB"}:
+        winner_key = "speakerA" if score_a >= score_b else "speakerB"
+
+    if score_a > score_b:
+        winner_key = "speakerA"
+    elif score_b > score_a:
+        winner_key = "speakerB"
+
+    winner_name = speaker_a if winner_key == "speakerA" else speaker_b
+
+    return {
+        "speakerA_score": score_a,
+        "speakerB_score": score_b,
+        "winner_key": winner_key,
+        "winner_name": winner_name,
+        "overall_comparison": str(
+            parsed.get("overall_comparison") or fallback["overall_comparison"]
+        ).strip(),
+        "speakerA_feedback": str(
+            parsed.get("speakerA_feedback") or fallback["speakerA_feedback"]
+        ).strip(),
+        "speakerB_feedback": str(
+            parsed.get("speakerB_feedback") or fallback["speakerB_feedback"]
+        ).strip(),
+        "final_verdict": str(
+            parsed.get("final_verdict") or fallback["final_verdict"]
+        ).strip(),
+    }
+
+
+def generate_overall_debate_feedback(
+    topic,
+    speaker_a,
+    speaker_b,
+    turn_summaries,
+    speaker_scores,
+):
+    prompt = build_overall_debate_feedback_prompt(
+        topic=topic,
+        speaker_a=speaker_a,
+        speaker_b=speaker_b,
+        turn_summaries=turn_summaries,
+        speaker_scores=speaker_scores,
+    )
+
+    feedback = call_llm(prompt)
+
+    if llm_unavailable(feedback):
+        return (
+            basic_overall_debate_feedback(topic, speaker_a, speaker_b, speaker_scores),
+            "fallback",
+            feedback,
+        )
+
+    parsed = parse_json_object(feedback)
+    if not parsed:
+        fallback = basic_overall_debate_feedback(topic, speaker_a, speaker_b, speaker_scores)
+        fallback["overall_comparison"] = feedback.strip()
+        return fallback, "llm_unparsed", "Could not parse LLM JSON response."
+
+    return (
+        normalize_overall_feedback(parsed, speaker_a, speaker_b, speaker_scores),
+        "llm",
+        None,
+    )
+
+
+def build_full_debate_feedback_prompt(
+    topic,
+    speaker_a,
+    speaker_b,
+    turn_summaries,
+    speaker_scores,
+):
+    summaries_json = json.dumps(turn_summaries, ensure_ascii=False, indent=2)
+
+    return f"""You are a fair debate coach and judge.
+
+Evaluate the full debate in one pass. Use the NLP scores as model evidence, but
+write the feedback yourself based on the actual arguments.
+
+Topic: {topic or "Not provided"}
+Speaker A: {speaker_a}
+Speaker B: {speaker_b}
+
+<average_nlp_scores_out_of_10>
+Speaker A: {speaker_scores.get("speakerA", 0)}
+Speaker B: {speaker_scores.get("speakerB", 0)}
+</average_nlp_scores_out_of_10>
+
+<turns>
+{summaries_json}
+</turns>
+
+Return ONLY valid JSON with this shape:
+{{
+  "turn_feedback": [
+    {{
+      "turn_id": "same turn_id from the input",
+      "recommendation": "One concise paragraph, 45-90 words, with the most important recommendation for this exact argument.",
+      "improved_statement": "A stronger version of this argument in 2-4 sentences."
+    }}
+  ],
+  "overall": {{
+    "speakerA_score": 0.0,
+    "speakerB_score": 0.0,
+    "winner_key": "speakerA",
+    "overall_comparison": "One paragraph comparing both candidates across opening, rebuttal, and closing.",
+    "speakerA_feedback": "One paragraph of candidate-specific feedback for Speaker A.",
+    "speakerB_feedback": "One paragraph of candidate-specific feedback for Speaker B.",
+    "final_verdict": "One paragraph explaining why the winner won."
+  }}
+}}
+
+Rules:
+- Include exactly one turn_feedback item for every input turn_id.
+- Per-turn recommendation must be only one paragraph.
+- Improved statement must preserve the speaker's side of the debate.
+- Scores must be numbers from 0 to 10 with at most one decimal place.
+- winner_key must be either "speakerA" or "speakerB".
+- The winner must match the higher score. If scores are tied, choose the candidate with the stronger rebuttal and closing.
+"""
+
+
+def basic_turn_feedback_from_summary(turn):
+    speaker_name = turn.get("speaker_name") or "The speaker"
+    round_name = turn.get("round") or "this round"
+    argument = turn.get("argument") or "The original argument needs more detail."
+    context = turn.get("context") or ""
+
+    evidence_note = "Add a concrete example, fact, or statistic and explain why it matters."
+    if context:
+        evidence_note = "Use the retrieved evidence more directly and connect it to the main claim."
+
+    return {
+        "turn_id": turn.get("turn_id"),
+        "recommendation": (
+            f"{speaker_name}'s {round_name} has a clear direction, but it should be made more persuasive. "
+            f"{evidence_note} The argument will improve if it states one precise claim, supports it with one specific reason, "
+            "and then links that reason back to the debate topic."
+        ),
+        "improved_statement": (
+            f"{argument} This position would be stronger with a specific example and a clearer explanation of how it affects the debate outcome."
+        ),
+    }
+
+
+def normalize_turn_feedback_items(parsed_items, turn_summaries):
+    parsed_by_id = {}
+
+    if isinstance(parsed_items, list):
+        for item in parsed_items:
+            if not isinstance(item, dict):
+                continue
+
+            turn_id = item.get("turn_id")
+            if not turn_id:
+                continue
+
+            parsed_by_id[str(turn_id)] = {
+                "turn_id": str(turn_id),
+                "recommendation": str(item.get("recommendation", "")).strip(),
+                "improved_statement": str(item.get("improved_statement", "")).strip(),
+            }
+
+    normalized = []
+    for turn in turn_summaries:
+        turn_id = str(turn.get("turn_id"))
+        item = parsed_by_id.get(turn_id)
+
+        if not item or not item.get("recommendation") or not item.get("improved_statement"):
+            item = basic_turn_feedback_from_summary(turn)
+
+        normalized.append(item)
+
+    return normalized
+
+
+def basic_full_debate_feedback(topic, speaker_a, speaker_b, turn_summaries, speaker_scores):
+    return {
+        "turn_feedback": [
+            basic_turn_feedback_from_summary(turn)
+            for turn in turn_summaries
+        ],
+        "overall": basic_overall_debate_feedback(
+            topic,
+            speaker_a,
+            speaker_b,
+            speaker_scores,
+        ),
+    }
+
+
+def normalize_full_debate_feedback(
+    parsed,
+    topic,
+    speaker_a,
+    speaker_b,
+    turn_summaries,
+    speaker_scores,
+):
+    if not isinstance(parsed, dict):
+        return basic_full_debate_feedback(
+            topic,
+            speaker_a,
+            speaker_b,
+            turn_summaries,
+            speaker_scores,
+        )
+
+    turn_feedback = normalize_turn_feedback_items(
+        parsed.get("turn_feedback"),
+        turn_summaries,
+    )
+    overall = normalize_overall_feedback(
+        parsed.get("overall") if isinstance(parsed.get("overall"), dict) else {},
+        speaker_a,
+        speaker_b,
+        speaker_scores,
+    )
+
+    return {
+        "turn_feedback": turn_feedback,
+        "overall": overall,
+    }
+
+
+def generate_full_debate_feedback(
+    topic,
+    speaker_a,
+    speaker_b,
+    turn_summaries,
+    speaker_scores,
+):
+    prompt = build_full_debate_feedback_prompt(
+        topic=topic,
+        speaker_a=speaker_a,
+        speaker_b=speaker_b,
+        turn_summaries=turn_summaries,
+        speaker_scores=speaker_scores,
+    )
+
+    feedback = call_llm(prompt)
+
+    if llm_unavailable(feedback):
+        return (
+            basic_full_debate_feedback(
+                topic,
+                speaker_a,
+                speaker_b,
+                turn_summaries,
+                speaker_scores,
+            ),
+            "fallback",
+            feedback,
+        )
+
+    parsed = parse_json_object(feedback)
+    if not parsed:
+        fallback = basic_full_debate_feedback(
+            topic,
+            speaker_a,
+            speaker_b,
+            turn_summaries,
+            speaker_scores,
+        )
+        fallback["overall"]["overall_comparison"] = feedback.strip()
+        return fallback, "llm_unparsed", "Could not parse LLM JSON response."
+
+    return (
+        normalize_full_debate_feedback(
+            parsed,
+            topic,
+            speaker_a,
+            speaker_b,
+            turn_summaries,
+            speaker_scores,
+        ),
+        "llm",
+        None,
+    )
+
+
+# =========================
+# 6. Optional: Lightweight Mode
 # =========================
 def basic_feedback(argument):
     """
