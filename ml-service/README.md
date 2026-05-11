@@ -1,175 +1,147 @@
-# 🧠 AI Debate Analyzer – ML Service
+# AI Debate Analyzer ML Service
 
-An AI-powered argument evaluation system that combines **NLP, Retrieval-Augmented Generation (RAG), and Generative AI** to analyze debate arguments and provide structured coaching feedback.
+FastAPI backend for the AI Debate Analyzer. This service runs the NLP pipeline, retrieves evidence, generates debate coaching feedback, and returns structured analysis to the Next.js frontend.
 
-This service performs argument analysis using a fine-tuned transformer model, retrieves supporting evidence, and generates human-like feedback grounded in factual context.
+## Features
 
----
-
-## 🔥 Key Features
-
-- Multitask NLP model (DeBERTa + LoRA)
-- Argument quality scoring (regression)
-- Component classification (Claim / Premise / MajorClaim)
-- Topic-aware stance detection (PRO / CON)
+- Multitask DeBERTa-based argument analysis
+- Argument quality scoring
+- Component classification: `MajorClaim`, `Claim`, `Premise`
+- Topic-aware stance detection: `PRO` or `CON`
 - Rule-based fallacy detection
-- Multi-source RAG pipeline (Wikipedia + academic retrieval)
-- Query rewriting for improved retrieval
-- Rubric-based evaluation system
-- LLM-powered coaching feedback
-- Retrieval debugging and transparency
-- RLAIF-style feedback loop for continuous improvement
+- Retrieval-augmented generation using Wikipedia, academic retrieval, embeddings, ChromaDB, and FAISS
+- Gemini-powered debate coaching feedback
+- Full debate feedback for multi-round speaker comparisons
+- RLAIF-style logging of interactions for later review
 
----
+## Tech Stack
 
-## 🧠 System Architecture
+- FastAPI
+- Uvicorn
+- PyTorch
+- Hugging Face Transformers
+- PEFT/LoRA
+- Sentence Transformers
+- ChromaDB and FAISS
+- Google Gemini via `google-genai`
+- Streamlit demo app in `app.py`
 
-```text
-User Input
-   ↓
-DeBERTa Model (quality, stance, component)
-   ↓
-Query Rewriting (intent-aware)
-   ↓
-Multi-query Expansion
-   ↓
-Multi-source Retrieval
-   → Wikipedia (general knowledge)
-   → Academic sources (Semantic Scholar)
-   ↓
-Deduplication + MMR Filtering
-   ↓
-Structured Context
-   ↓
-LLM (Feedback Generation)
-   ↓
-Rubric Scoring + Final Output
+## Project Structure
+
+```txt
+ml-service/
+  api.py                         FastAPI application
+  app.py                         Optional Streamlit demo UI
+  Dockerfile                     Docker deployment config
+  requirements.txt               Python dependencies
+  src/inference/                 Model loading and prediction
+  src/rag/                       Retrieval and LLM feedback pipeline
+  src/evaluation/debate_model.pt Local model path, ignored by Git
+  src/db_service.py              RLAIF interaction logging
+  chroma_db/                     Local vector database files
 ```
 
-This modular design separates prediction, retrieval, and reasoning layers for better interpretability and extensibility.
+## Environment Variables
 
----
+Create `ml-service/.env` locally:
 
-## 🧠 ML Model Architecture
-
-The core model is a **multitask DeBERTa-v3-base transformer** fine-tuned using **LoRA (PEFT)**.
-
-### Tasks:
-
-- Argument Quality (regression)
-- Component Detection (classification)
-- Stance Detection (classification)
-
-### Training Strategy:
-
-- Task-specific prefixes:
-
-  ```
-  [QUALITY] argument
-  [COMPONENT] argument
-  [STANCE] topic + argument
-  ```
-
-- Shared encoder + task-specific heads
-- Weighted loss for imbalance handling
-
-### Output Example:
-
-```json
-{
-  "argument_quality": 0.695,
-  "component": "Claim",
-  "stance": "CON",
-  "fallacy": "None"
-}
+```env
+GEMINI_API_KEY=your_gemini_api_key
+HF_TOKEN=your_hugging_face_token
+HF_MODEL_REPO=DEVAYUSHOPS/ai-debate-analyzer-model
+HF_MODEL_FILENAME=debate_model.pt
 ```
 
----
+`HF_MODEL_REPO` is used when `src/evaluation/debate_model.pt` is not available locally. The service downloads the model from Hugging Face at startup.
 
-## 🔍 RAG Pipeline
+Do not commit `.env`.
 
-The system uses an **enhanced RAG pipeline** to improve factual grounding:
+## Model File
 
-### Steps:
+The API expects a trained model at:
 
-1. Query rewriting based on argument intent (research / policy / general)
-2. Multi-query expansion for broader coverage
-3. Multi-source retrieval:
-   - Wikipedia (general knowledge)
-   - Semantic Scholar (research evidence)
+```txt
+src/evaluation/debate_model.pt
+```
 
-4. Deduplication of retrieved chunks
-5. Embedding-based ranking
-6. Diversity-aware filtering (MMR-style)
-7. Structured context generation
+Because model files are large, `*.pt` is ignored by Git. For deployment, upload the model to Hugging Face and set:
 
-This ensures:
+```env
+HF_MODEL_REPO=DEVAYUSHOPS/ai-debate-analyzer-model
+HF_MODEL_FILENAME=debate_model.pt
+```
 
-- Better evidence retrieval
-- Reduced hallucination
-- Improved reasoning quality
+The backend will use the local model if it exists. Otherwise, it downloads the model with `huggingface_hub`.
 
----
+## Local Development
 
-## 🧠 Query Intelligence Layer
+Create and activate a virtual environment:
 
-Raw debate arguments are not optimal for retrieval.
+```bash
+python -m venv .venv
+```
 
-The system includes a **query rewriting module** that:
+On Windows PowerShell:
 
-- Extracts key terms
-- Detects argument intent (research vs policy vs general)
-- Generates retrieval-friendly queries
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 
-This significantly improves performance for research-heavy arguments.
+Install dependencies:
 
----
+```bash
+pip install -r requirements.txt
+```
 
-## 📊 Rubric-Based Evaluation
+Start the FastAPI service:
 
-Beyond model predictions, the system evaluates arguments using a **custom rubric**:
+```bash
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
+```
 
-- Argument Quality
-- Evidence Usage
-- Logical Reasoning
-- Clarity
-- Rebuttal Readiness
+Open:
 
-This enables multi-dimensional assessment instead of relying on a single score.
+```txt
+http://localhost:8000
+```
 
----
+FastAPI docs are available at:
 
-## 🧠 Handling Ambiguity
+```txt
+http://localhost:8000/docs
+```
 
-The system does not assume all arguments are fully supported.
+## Docker
 
-It classifies factual grounding as:
+Build the image:
 
-- Supported
-- Partially supported
-- Unsupported
+```bash
+docker build -t ai-debate-ml .
+```
 
-This reflects real-world uncertainty and improves reliability.
+Run the container:
 
----
+```bash
+docker run -p 8000:8000 --env-file .env ai-debate-ml
+```
 
-## 🤖 LLM Feedback Generation
+The Dockerfile starts the app with:
 
-A generative AI model (Gemini) is used to:
+```bash
+python -m uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+```
 
-- Provide structured coaching feedback
-- Explain strengths and weaknesses
-- Suggest improvements
-- Rewrite arguments
+## API Endpoints
 
-Important:
+### `GET /`
 
-> The LLM is used for interpretation, not prediction.
-> Core scoring is handled by the trained model and retrieval pipeline.
+Health check.
 
----
+### `POST /analyze`
 
-## 🧪 Example Input
+Analyze a single argument.
+
+Example request:
 
 ```json
 {
@@ -178,124 +150,72 @@ Important:
 }
 ```
 
----
+### `POST /student-feedback`
 
-## 📦 API Endpoints
+Return student-facing rubric feedback for one argument.
 
-### `/analyze`
+Example request:
 
-Returns:
+```json
+{
+  "topic": "Schools should ban smartphones",
+  "text": "Smartphones distract students during class.",
+  "student_name": "Candidate"
+}
+```
 
-- Model predictions
-- Retrieved context
-- LLM feedback
+### `POST /debate-feedback`
 
-### `/student-feedback`
+Analyze a full debate with named speakers and rounds. This is the endpoint used by the Next.js frontend.
 
-Returns:
+Example request:
 
-- Model predictions
-- Rubric scores
-- Structured coaching feedback
+```json
+{
+  "topic": "Schools should ban smartphones",
+  "speakerA": "Alex",
+  "speakerB": "Riya",
+  "mode": "text",
+  "rounds": [
+    {
+      "round": "Opening",
+      "speakerA": "Phones distract students and reduce focus.",
+      "speakerB": "Phones can support learning when used responsibly."
+    }
+  ]
+}
+```
 
----
+## Deployment
 
-## 🧠 RLAIF Feedback Loop
+Deploy this folder to Render as a Docker web service.
 
-The system logs difficult cases where:
+Use these settings:
 
-- Model confidence is high
-- But LLM identifies weaknesses
+```txt
+Root Directory: ml-service
+Runtime: Docker
+```
 
-These are stored and later used for retraining.
+Add these Render environment variables:
 
-### Flow:
+```env
+GEMINI_API_KEY=your_gemini_api_key
+HF_TOKEN=your_hugging_face_token
+HF_MODEL_REPO=DEVAYUSHOPS/ai-debate-analyzer-model
+HF_MODEL_FILENAME=debate_model.pt
+```
 
-1. User input → model prediction
-2. LLM critique
-3. Hard cases logged
-4. Converted into training data
-5. Improves future performance
+After deployment, set the frontend's `ML_SERVICE_URL` to the Render service URL.
 
----
+## Troubleshooting
 
-## 📊 Evaluation Metrics
+If you see an error from `/usr/local/bin/uvicorn`, make sure the deployed Dockerfile uses:
 
-| Task                | Metric              | Score |
-| ------------------- | ------------------- | ----- |
-| Argument quality    | Pearson correlation | ~0.65 |
-| Component detection | Macro F1            | ~0.78 |
-| Stance detection    | Macro F1            | ~0.82 |
+```bash
+python -m uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+```
 
----
+If the service cannot find `debate_model.pt`, confirm that the model exists in the Hugging Face repo and that `HF_TOKEN`, `HF_MODEL_REPO`, and `HF_MODEL_FILENAME` are set correctly.
 
-## ⚙️ Tech Stack
-
-### Core:
-
-- PyTorch
-- Hugging Face Transformers
-- SentenceTransformers
-
-### Backend:
-
-- FastAPI
-
-### Frontend:
-
-- Streamlit
-
-### Retrieval:
-
-- ChromaDB
-- Wikipedia API
-- Semantic Scholar API
-
-### LLM:
-
-- Google Gemini
-
----
-
-## ⚠️ Limitations
-
-- RAG coverage depends on available sources
-- Academic retrieval is query-sensitive
-- LLM feedback depends on API quota
-- Stance model requires correction layer for negation
-
----
-
-## 🚀 Key Contributions
-
-- Designed a multitask NLP system for argument analysis
-- Built a query-aware multi-source RAG pipeline
-- Integrated academic retrieval for evidence grounding
-- Developed a rubric-based evaluation framework
-- Implemented LLM-based coaching feedback
-- Added RLAIF-style learning loop
-
----
-
-## 🧠 Project Type
-
-This project is a **research-oriented prototype**, demonstrating:
-
-- NLP modeling
-- Retrieval systems
-- LLM integration
-- End-to-end AI pipeline design
-
----
-
-## 🎯 Summary
-
-This system combines:
-
-- **NLP (transformers)**
-- **RAG (retrieval + grounding)**
-- **Generative AI (LLM feedback)**
-
-into a complete **argument evaluation and coaching system**.
-
----
+If Docker builds are slow, that is expected. PyTorch, Transformers, ChromaDB, and FAISS make this image large.

@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Debate Analyzer Frontend
 
-## Getting Started
+Next.js frontend for the AI Debate Analyzer. It lets users enter debate rounds, submit transcripts for analysis, view speaker scores, inspect generated feedback, browse saved debates, and download reports.
 
-First, run the development server:
+This app is designed to run separately from the ML backend in `../ml-service`.
+
+## Tech Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- MongoDB with Mongoose
+- Recharts and React Flow for visualizations
+- jsPDF for report export
+
+## Project Structure
+
+```txt
+frontend/
+  app/                  Next.js app router pages and API routes
+  app/api/analyze/      Calls the FastAPI ML service and saves results
+  app/api/debates/      Lists saved debates
+  app/api/debate/[id]/  Loads a saved debate by ID
+  components/           UI components
+  hooks/                Debate timer and debate engine hooks
+  lib/                  Shared config and MongoDB connection
+  models/               Mongoose models
+  types/                Shared TypeScript types
+```
+
+## Environment Variables
+
+Create `frontend/.env.local` for local development:
+
+```env
+MONGODB_URI=mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/ai_debate_analyzer
+ML_SERVICE_URL=http://localhost:8000
+```
+
+For production, `ML_SERVICE_URL` must point to the deployed FastAPI service:
+
+```env
+ML_SERVICE_URL=https://your-ml-service.onrender.com
+```
+
+Do not commit `.env.local`.
+
+## Local Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```txt
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The ML service should also be running at `http://localhost:8000`, or the `/api/analyze` route will fail.
 
-## Learn More
+## Available Scripts
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run dev      # Start local Next.js dev server
+npm run build    # Build production app
+npm run start    # Start production server after build
+npm run lint     # Run ESLint
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Deploy this folder to Vercel.
 
-## Deploy on Vercel
+Use these settings:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```txt
+Root Directory: frontend
+Install Command: npm install
+Build Command: npm run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Add these Vercel environment variables:
+
+```env
+MONGODB_URI=your_mongodb_atlas_connection_string
+ML_SERVICE_URL=https://your-render-ml-service-url.onrender.com
+```
+
+## Notes
+
+- The frontend does not run the ML model directly.
+- The Next.js API route `app/api/analyze/route.ts` forwards debate data to the FastAPI backend.
+- Saved debates are stored in MongoDB through `lib/db.ts` and `models/Debate.ts`.
